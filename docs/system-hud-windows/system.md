@@ -248,6 +248,8 @@ Bản Ubuntu nằm cùng repo (`system-hud/`). Khi có commit mới, xem `git lo
 - Dòng `LOAD` → `PROC / THR`; `SWAP` → `PAGEFILE`; `CACHE` → `CACHED`.
 - Chỉ có theme `orbital` và `orbitalLight`.
 
+Chưa đồng bộ (chờ chủ dự án quyết, 2026-11-16): bản Ubuntu đã đổi `intervalMs`/`animMs` mặc định 3000 → 5000 và có cửa sổ cấu hình (#34); bản Windows vẫn 3000 và chỉ cấu hình bằng sửa `config.json`.
+
 ## Architectural Decisions & Rationale
 
 | Quyết định | Lý do |

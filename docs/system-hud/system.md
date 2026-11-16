@@ -7,7 +7,8 @@
 System HUD là GNOME Shell extension, UUID `system-hud@ubuntu-assistant` (tên cũ: Sci-Fi HUD, `scifi-hud@ubuntu-assistant`).
 - Đặt một `St.DrawingArea` vào `Main.layoutManager._backgroundGroup`, tức lớp hình nền.
 - Mỗi lần repaint, vẽ toàn bộ bảng bằng Cairo theo theme đang chọn.
-- Không có prefs, không có D-Bus, không cần quyền root.
+- Cấu hình bằng `config.json`; có cửa sổ cấu hình GTK riêng (`settings-app.js`), mở khi bấm biểu tượng HUD trên thanh trên cùng.
+- Không có D-Bus, không cần quyền root.
 
 Môi trường: Ubuntu 26.04, GNOME Shell 50.1 (Wayland), GPU NVIDIA GTX 1660 (`nvidia-smi` có sẵn trong driver).
 
@@ -18,6 +19,7 @@ Lệnh (chạy trong `system-hud/`):
 ./hud-config.sh                        # xem cấu hình đang cài
 ./hud-config.sh theme orbitalLight     # đổi 1 khoá; HUD áp dụng ngay nhờ theo dõi file
 ./hud-config.sh monitor secondary
+./hud-config.sh ui                     # mở cửa sổ cấu hình (giống bấm biểu tượng trên thanh trên cùng)
 gjs -m tools/preview.js <thư-mục-ra> [giây] [hình-nền.png] [theme,...]   # xuất ảnh xem trước theme
 gjs -m tools/anim-preview.js <thư-mục-ra> [theme] [intervalMs] [animMs] [fps]  # xuất khung hình hiệu ứng, đo thời gian vẽ
 gnome-extensions info system-hud@ubuntu-assistant
@@ -34,8 +36,10 @@ extension.js ── import('./core.js?v=<Date.now()>') ──► HudCore (core.j
      enable(): loadConfig ─► new Sensors().start() ─► tạo St.DrawingArea(reactive=false) trong _backgroundGroup
                │                    │                     ├─ 'child-added' của group → _raise() (luôn trên ảnh nền)
                │                    │                     ├─ 'monitors-changed', 'workareas-changed' → _relayout()
-               │                    │                     └─ Gio.FileMonitor config.json → nạp lại cfg, _relayout, đổi timer
+               │                    │                     └─ Gio.FileMonitor config.json → nạp lại cfg, _relayout, đổi timer, bật/tắt biểu tượng
                │                    └─ nvidia-smi -lms 1000 (luồng, đọc dòng bất đồng bộ) → state.gpu
+               └─ _syncIndicator: PanelMenu.Button trên thanh trên cùng ── bấm ──► gjs -m settings-app.js
+                                                                                  └─ settings.js buildPage ── ghi ──► config.json
                ▼
      timer intervalMs (≥500) ─► sensors.update() ─► _onSample(): animator.push(state)
                                                       └─ timer 1000/fps ms chạy trong animMs: animator.frame(now) → queue_repaint
@@ -51,14 +55,16 @@ extension.js ── import('./core.js?v=<Date.now()>') ──► HudCore (core.j
 
 | Bước | Code |
 |---|---|
-| Nạp core.js kèm mã phiên bản; core.js nạp tiếp sensors/hud/animator cùng mã đó | [extension.js](../../system-hud/system-hud@ubuntu-assistant/extension.js), [core.js:11-14](../../system-hud/system-hud@ubuntu-assistant/core.js) |
-| Mặc định cấu hình, đọc config.json | `DEFAULTS` [core.js:16](../../system-hud/system-hud@ubuntu-assistant/core.js), `loadConfig` [core.js:27](../../system-hud/system-hud@ubuntu-assistant/core.js) |
-| Né dock trái tự ẩn (dash-to-dock không trừ vào work area) | `dockMargin` [core.js:39](../../system-hud/system-hud@ubuntu-assistant/core.js) |
-| Gắn vào lớp hình nền, theo dõi màn hình và config | `enable` [core.js:59](../../system-hud/system-hud@ubuntu-assistant/core.js) |
-| Hẹn giờ lấy mẫu | `_startTimer` [core.js:117](../../system-hud/system-hud@ubuntu-assistant/core.js) |
-| Mẫu mới → chạy hiệu ứng | `_onSample` [core.js:129](../../system-hud/system-hud@ubuntu-assistant/core.js) |
-| Chọn màn hình (`primary`/`secondary`/số) | `_monitorIndex` [core.js:189](../../system-hud/system-hud@ubuntu-assistant/core.js) |
-| Tính vị trí/kích thước theo work area, mép, dock | `_relayout` [core.js:202](../../system-hud/system-hud@ubuntu-assistant/core.js) |
+| Nạp core.js kèm mã phiên bản; core.js nạp tiếp sensors/hud/animator cùng mã đó | [extension.js](../../system-hud/system-hud@ubuntu-assistant/extension.js), [core.js:13-17](../../system-hud/system-hud@ubuntu-assistant/core.js) |
+| Mặc định cấu hình (dùng chung core và cửa sổ cấu hình), đọc config.json | `DEFAULTS` [defaults.js](../../system-hud/system-hud@ubuntu-assistant/defaults.js), `loadConfig` [core.js:19](../../system-hud/system-hud@ubuntu-assistant/core.js) |
+| Né dock trái tự ẩn (dash-to-dock không trừ vào work area) | `dockMargin` [core.js:31](../../system-hud/system-hud@ubuntu-assistant/core.js) |
+| Gắn vào lớp hình nền, theo dõi màn hình và config | `enable` [core.js:51](../../system-hud/system-hud@ubuntu-assistant/core.js) |
+| Biểu tượng trên thanh trên cùng, mở cửa sổ cấu hình | `_syncIndicator` [core.js:121](../../system-hud/system-hud@ubuntu-assistant/core.js), `_openSettings` 148 |
+| Cửa sổ cấu hình: dựng trang, đọc/ghi config.json (trễ 300 ms) | `buildPage` [settings.js](../../system-hud/system-hud@ubuntu-assistant/settings.js); app riêng [settings-app.js](../../system-hud/system-hud@ubuntu-assistant/settings-app.js); Extensions app [prefs.js](../../system-hud/system-hud@ubuntu-assistant/prefs.js) |
+| Hẹn giờ lấy mẫu | `_startTimer` [core.js:166](../../system-hud/system-hud@ubuntu-assistant/core.js) |
+| Mẫu mới → chạy hiệu ứng | `_onSample` [core.js:178](../../system-hud/system-hud@ubuntu-assistant/core.js) |
+| Chọn màn hình (`primary`/`secondary`/số) | `_monitorIndex` [core.js:240](../../system-hud/system-hud@ubuntu-assistant/core.js) |
+| Tính vị trí/kích thước theo work area, mép, dock | `_relayout` [core.js:253](../../system-hud/system-hud@ubuntu-assistant/core.js) |
 | Khởi tạo cảm biến (chọn file nhiệt độ, ổ gốc, GPU AMD) | `Sensors` constructor [sensors.js:76](../../system-hud/system-hud@ubuntu-assistant/sensors.js) |
 | Một lần đo | `update` [sensors.js:146](../../system-hud/system-hud@ubuntu-assistant/sensors.js) |
 | CPU / RAM / disk / net | `_readCpu` [sensors.js:172](../../system-hud/system-hud@ubuntu-assistant/sensors.js), `_readMem` 211, `_readDiskUsage` 240, `_readDisk` 255, `_readNet` 288 |
@@ -112,6 +118,9 @@ Không có database. `Sensors.state` là input duy nhất của `drawHud` (xem [
   - Theme có `draw(cr, W, H, s)` và `neededH` (hiện là `card`) thì tự vẽ toàn bộ và bỏ qua `SECTIONS`.
 - **Theme mới**: thêm vào hud.js rồi đăng ký ở `THEMES`. `loadConfig` đổi tên theme không có trong `THEMES` thành `orbital`.
 - **Không có API ngoài.** Giao tiếp duy nhất với bên ngoài là `config.json`. Theo dõi bằng `Gio.FileMonitor`, chỉ phản ứng với `CHANGES_DONE_HINT`/`CREATED`.
+  - `hud-config.sh` ghi đè tại chỗ → `CHANGES_DONE_HINT`.
+  - Cửa sổ cấu hình ghi bằng `GLib.file_set_contents` (file tạm rồi đổi tên) → `DELETED`, `CREATED`, `CHANGES_DONE_HINT`. Đã thử trên máy này.
+- **Cửa sổ cấu hình** (`settings.js` `buildPage(dir)` → `Adw.PreferencesPage`): GTK 4 + libadwaita 1.9, không import gì của GNOME Shell. Mỗi lần đổi một ô thì chờ 300 ms rồi ghi; trước khi ghi đọc lại file để không đè khoá sửa từ nơi khác. App riêng có `application_id` `com.ubuntu_assistant.SystemHud.Settings` nên chỉ mở một cửa sổ.
 
 ## 6. Cấu hình và tác động khi đổi
 
@@ -126,8 +135,9 @@ File `~/.local/share/gnome-shell/extensions/system-hud@ubuntu-assistant/config.j
 | `side` | left | left | `left` / `right`. Bên trái màn chính tự cộng thêm chỗ cho dock tự ẩn |
 | `widthFraction` | 0.25 | 0.25 | Tỉ lệ chiều rộng màn hình; chiều cao luôn bằng work area trừ `gap` |
 | `gap` | 12 | 12 | Khoảng cách tới mép, top bar, dock |
-| `intervalMs` | 3000 | 3000 | Chu kỳ đo (tối thiểu 500). Giảm thì tốn CPU hơn và đồ thị 60 mẫu phủ ít thời gian hơn |
-| `animMs` | 3000 (trước 2026-11-13: 900) | 3000 (chuyển liên tục suốt chu kỳ đo) | Thời gian hiệu ứng; `0` = tắt hiệu ứng (vẽ 1 lần mỗi mẫu) |
+| `intervalMs` | 5000 (trước 2026-11-16: 3000) | 5000 | Chu kỳ đo (tối thiểu 500). Giảm thì tốn CPU hơn và đồ thị 60 mẫu phủ ít thời gian hơn (5000 → 5 phút) |
+| `animMs` | 5000 (2026-11-13: 3000; trước đó 900) | 5000 (chuyển liên tục suốt chu kỳ đo) | Thời gian hiệu ứng; `0` = tắt hiệu ứng (vẽ 1 lần mỗi mẫu). Cửa sổ cấu hình có công tắc "chuyển suốt cả chu kỳ" giữ `animMs` = `intervalMs` |
+| `showIndicator` | true | true | Biểu tượng trên thanh trên cùng; bấm vào mở cửa sổ cấu hình. Tắt thì mở cửa sổ bằng `./hud-config.sh ui` |
 | `fps` | 10 (trước 2026-11-13: 30) | 10 (người dùng chọn 2026-11-13. gnome-shell với hiệu ứng liên tục: 30 fps khoảng 43% một nhân, CPU giữ xung turbo ~72°C; 15 fps khoảng 31%; 5 fps khoảng 22% nhưng giật) | Số khung/giây khi đang chạy hiệu ứng |
 
 Thiết lập ngoài cũng ảnh hưởng tới HUD:
@@ -169,6 +179,7 @@ Thiết lập ngoài cũng ảnh hưởng tới HUD:
 | 2026-11-12 | File khởi động mỏng; install.sh chờ INACTIVE/ACTIVE (sửa lỗi nằm ở INACTIVE sau khi cài lại) |
 | 2026-11-12 | Gauge orbital bỏ thước vạch và 2 cung xoay ngoài |
 | 2026-11-13 | #21: thử `animMs` = `intervalMs` = 3000 (hiệu ứng chạy suốt chu kỳ). #22: làm tròn GPU Clock/Fan (số nội suy hiện 10 chữ số thập phân). #23: vòng đo GPU r 44 → 58 |
+| 2026-11-16 | #34: chu kỳ lấy số liệu và thời gian chuyển 3 s → 5 s; cửa sổ cấu hình (biểu tượng trên thanh trên cùng, `settings-app.js`, `prefs.js`); `defaults.js` dùng chung; `hud-config.sh ui` |
 | 2026-11-13 | #18: đổi tên Sci-Fi HUD → System HUD (UUID mới). Trên máy này đã gỡ hẳn UUID cũ và đăng nhập lại để nạp sạch; `install.sh` không giữ code chuyển đổi (bản cũ chưa từng được cài ở máy khác) |
 
 ## 9. Cấu trúc thư mục
@@ -183,6 +194,10 @@ system-hud/
 │  ├─ core.js                  HudCore: gắn vào shell, bố cục, timer, theo dõi config
 │  ├─ sensors.js               đọc số liệu (không phụ thuộc gnome-shell, chạy được bằng gjs)
 │  ├─ animator.js              nội suy giữa 2 mẫu
+│  ├─ defaults.js              DEFAULTS dùng chung cho core.js và cửa sổ cấu hình
+│  ├─ settings.js              trang cấu hình (Adw.PreferencesPage), đọc/ghi config.json
+│  ├─ settings-app.js          cửa sổ cấu hình chạy riêng (gjs -m), mở từ biểu tượng trên thanh
+│  ├─ prefs.js                 nút Cài đặt trong ứng dụng Extensions (dùng settings.js)
 │  ├─ hud.js                   drawHud + 5 theme (Cairo/Pango, không phụ thuộc gnome-shell)
 │  └─ config.json              cấu hình mặc định
 └─ tools/
@@ -193,7 +208,7 @@ system-hud/
 ## 10. Quy ước phát triển
 
 - Comment và log bằng tiếng Việt; log có tiền tố `[system-hud]`.
-- `sensors.js`, `animator.js`, `hud.js` không được import gì của GNOME Shell (`resource:///org/gnome/shell/...`), để `tools/` chạy được bằng `gjs -m`.
+- `sensors.js`, `animator.js`, `hud.js`, `defaults.js`, `settings.js` không được import gì của GNOME Shell (`resource:///org/gnome/shell/...`), để `tools/` chạy được bằng `gjs -m`.
 - Thêm hoặc đổi module con: nạp kèm `VERSION_QUERY` trong core.js, nếu không bản cũ sẽ bị cache.
 - **Sửa giao diện**:
   1. Xuất ảnh bằng `tools/preview.js` để xem trước.
@@ -229,7 +244,9 @@ Code path cheatsheet:
 | Đổi chiều cao các khối | `SECTIONS` trong `hud.js` |
 | Đổi vị trí / né dock / chọn màn | `core.js` `_relayout`, `_monitorIndex`, `dockMargin` |
 | Đổi hiệu ứng | `animator.js`, `animMs`/`fps` |
-| Đổi cách cài | `install.sh` |
+| Thêm khoá cấu hình | `defaults.js`, chỗ dùng trong `core.js`, thêm ô trong `settings.js`, bảng ở mục 6 |
+| Sửa cửa sổ cấu hình | `settings.js` (xem trước: dựng `buildPage` trong cửa sổ gjs rồi chụp bằng `Gtk.WidgetPaintable`) |
+| Đổi cách cài | `install.sh` (thêm file mới vào danh sách `cp`) |
 
 Lệnh hay dùng:
 
@@ -240,10 +257,11 @@ cd system-hud   # từ thư mục gốc repo
 gjs -m tools/preview.js /tmp/hud-preview 10
 ```
 
-Trạng thái runtime (2026-11-13):
+Trạng thái runtime (2026-11-16):
 - Đã cài `system-hud@ubuntu-assistant` và bật trong danh sách.
 - UUID cũ `scifi-hud@ubuntu-assistant` đã gỡ hẳn (thư mục và danh sách bật).
-- Cấu hình: orbital, màn phụ HDMI-3, mép trái.
+- Cấu hình: orbital, màn phụ HDMI-3, mép trái, lấy số liệu và chuyển 5 s, 10 fps.
+- `prefs.js` mới cài: ứng dụng Extensions chỉ hiện nút Cài đặt sau lần đăng nhập tới; biểu tượng trên thanh dùng được ngay.
 
 ## 13. Architectural Decisions & Rationale
 
@@ -259,6 +277,9 @@ Trạng thái runtime (2026-11-13):
 | Cấu hình qua `config.json` + FileMonitor, không làm GSettings schema | Không phải biên dịch schema, đổi bằng một lệnh, áp dụng ngay |
 | File khởi động mỏng `core.js?v=` | GJS cache ESM theo URL; tránh phải đăng xuất mỗi lần sửa |
 | `install.sh` chờ trạng thái giữa disable và enable | `disable` bất đồng bộ; `enable` gửi sớm bị bỏ qua |
+| Mở cấu hình bằng biểu tượng trên thanh trên cùng, không bấm thẳng lên HUD | Desktop Icons (`ding@rastersoft.com`, bật mặc định trên Ubuntu) đặt cửa sổ trong suốt phủ cả desktop, trên lớp hình nền, nên nhận hết cú bấm ở vùng HUD. Chen HUD lên trên cửa sổ đó thì phải tự xếp lại thứ tự mỗi khi cửa sổ đổi chồng: dễ vỡ |
+| Cửa sổ cấu hình là app GTK riêng (`gjs -m settings-app.js`), `prefs.js` chỉ bọc lại | Shell chỉ biết extension có `prefs.js` từ lần đăng nhập nạp nó (`openExtensionPrefs` kiểm `hasPrefs`); app riêng chạy được ngay sau `install.sh`, và mở được từ terminal |
+| `extension.js` không đổi khi thêm cửa sổ cấu hình | `extension.js` bị cache tới lần đăng nhập sau; mọi thứ mới nằm trong `core.js` và module nạp kèm `VERSION_QUERY` |
 | Tên "System HUD" | Người dùng chọn ngày 2026-11-13 (thay "Sci-Fi HUD"); đổi tên cần hỏi trước |
 
 ## 14. Common Pitfalls
@@ -275,6 +296,8 @@ Trạng thái runtime (2026-11-13):
 | Đổi `fps` trong config không có tác dụng | Khi `animMs >= intervalMs` timer khung hình chạy liên tục, không bao giờ tạo lại với fps mới | Theo dõi config: fps đổi thì huỷ và tạo lại timer khung hình (#24) |
 | `nvidia-smi` báo GPU 30–37% khi HUD chạy hiệu ứng liên tục | % tải tính theo xung hiện tại; GPU đang ở xung thấp (≈405 MHz) nên việc nhỏ cũng hiện % cao | Xem công suất: bật/tắt HUD chỉ chênh ≈0,4 W (8,3 so với 7,9 W). Chi phí thật là CPU gnome-shell (đo 2026-11-13: tắt HUD 17%, hiệu ứng 0,9 s 25%, liên tục 30 fps 38%, 15 fps 29%, 10 fps 25%) |
 | Gauge orbital rối mắt | Quá nhiều chi tiết trang trí | Đã bỏ thước vạch và cung xoay (2026-11-12); không thêm lại khi chưa hỏi |
+| Bấm lên HUD không có tác dụng gì | Cửa sổ của Desktop Icons (ding) phủ lớp hình nền | Dùng biểu tượng trên thanh trên cùng hoặc `./hud-config.sh ui` |
+| Gtk-WARNING `Failed to set text … from markup` ở cửa sổ cấu hình | `title`/`subtitle` của Adw row được hiểu là Pango markup; chuỗi có `<…>` hoặc `&` hỏng | Không dùng `<`, `>`, `&` trong chữ của row (hoặc thoát bằng `GLib.markup_escape_text`) |
 | Log có `JS ERROR … grabbedsOldRect` | Lỗi của extension tiling-assistant | Không liên quan HUD |
 
 ## 15. Memory files & external resources

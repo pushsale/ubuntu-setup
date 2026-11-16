@@ -4,7 +4,8 @@
   "side": "left",
   "widthFraction": 0.25,
   "gap": 12,
-  "intervalMs": 3000,
-  "animMs": 3000,
-  "fps": 10
+  "intervalMs": 5000,
+  "animMs": 5000,
+  "fps": 10,
+  "showIndicator": true
 }

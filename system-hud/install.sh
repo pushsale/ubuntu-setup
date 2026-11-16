@@ -8,7 +8,7 @@ SRC="$(cd "$(dirname "$0")" && pwd)/$UUID"
 DEST="$HOME/.local/share/gnome-shell/extensions/$UUID"
 
 mkdir -p "$DEST"
-cp "$SRC"/{metadata.json,extension.js,core.js,sensors.js,hud.js,animator.js} "$DEST"/
+cp "$SRC"/{metadata.json,extension.js,core.js,sensors.js,hud.js,animator.js,defaults.js,settings.js,settings-app.js,prefs.js} "$DEST"/
 # giữ config.json đã chỉnh trước đó, chỉ chép nếu chưa có
 [ -f "$DEST/config.json" ] || cp "$SRC/config.json" "$DEST/"
 

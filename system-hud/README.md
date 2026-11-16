@@ -19,14 +19,18 @@ cd ubuntu-setup/system-hud
 
 Lần cài đầu: đăng xuất rồi đăng nhập lại để HUD hiện ra. Các lần cài lại sau có hiệu lực ngay.
 
-## Đổi giao diện, vị trí
+## Đổi giao diện, vị trí, tốc độ cập nhật
+
+Bấm biểu tượng HUD (hình màn hình theo dõi) trên thanh trên cùng để mở cửa sổ cấu hình: chu kỳ lấy số liệu, thời gian chuyển số liệu, số khung hình/giây, giao diện, màn hình, mép, độ rộng. Hoặc dùng lệnh:
 
 ```bash
+./hud-config.sh ui                  # mở cửa sổ cấu hình
 ./hud-config.sh                     # xem cấu hình hiện tại
 ./hud-config.sh theme orbitalLight  # orbital | orbitalLight | card | tactical | terminal
 ./hud-config.sh monitor secondary   # primary | secondary | 0 | 1 ...
 ./hud-config.sh side right          # left | right
 ./hud-config.sh widthFraction 0.3   # rộng 30% màn hình
+./hud-config.sh intervalMs 5000    # lấy số liệu 5 giây/lần (animMs: thời gian chuyển số liệu)
 ./hud-config.sh fps 15              # số khung/giây khi chạy hiệu ứng (ít hơn = nhẹ CPU hơn)
 ```
 

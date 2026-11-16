@@ -7,7 +7,7 @@ Bộ công cụ tự viết để tuỳ biến và vận hành máy Ubuntu 26.04
 | Thư mục | Phạm vi | Trạng thái | Cập nhật |
 |---|---|---|---|
 | [remote-shield/](remote-shield/overview.md) | Khi có người remote RDP, màn hình thật trông như đang khóa; người remote vẫn thấy và điều khiển desktop; bấm tại máy để lấy lại máy | đang chạy | 2026-11-13 |
-| [system-hud/](system-hud/overview.md) | Bảng theo dõi CPU/RAM/GPU/ổ đĩa/mạng/nhiệt độ vẽ trên desktop, dưới mọi cửa sổ (tên cũ: Sci-Fi HUD) | đang chạy | 2026-11-13 |
+| [system-hud/](system-hud/overview.md) | Bảng theo dõi CPU/RAM/GPU/ổ đĩa/mạng/nhiệt độ vẽ trên desktop, dưới mọi cửa sổ (tên cũ: Sci-Fi HUD); cửa sổ cấu hình mở từ biểu tượng trên thanh trên cùng | đang chạy | 2026-11-16 |
 | [system-hud-windows/](system-hud-windows/overview.md) | Bản Windows của System HUD (C# .NET Framework 4.8, GDI+): cùng giao diện Orbital, cửa sổ trong suốt dưới mọi cửa sổ, tự chạy khi đăng nhập | đang chạy | 2026-11-13 |
 | [initial-setup/](initial-setup/overview.md) | Cài máy Ubuntu mới: script cài một lượt các thứ đơn giản (nhập mật khẩu một lần) + danh sách mục phức tạp để Claude xử lý; người dùng chỉ dán lệnh cài Claude | thiết kế | 2026-11-13 |
 

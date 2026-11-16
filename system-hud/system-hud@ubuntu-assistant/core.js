@@ -4,7 +4,9 @@
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
 import St from 'gi://St';
+import Clutter from 'gi://Clutter';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 // Lõi HUD. Được extension.js nạp kèm mã phiên bản (?v=...) để mỗi lần tắt/bật
 // extension là chạy code mới nhất, không cần đăng xuất. Các module con cũng
 // được nạp kèm đúng mã phiên bản đó.
@@ -12,17 +14,7 @@ const VERSION_QUERY = import.meta.url.includes('?') ? import.meta.url.slice(impo
 const {Sensors, HISTORY} = await import(`./sensors.js${VERSION_QUERY}`);
 const {drawHud, THEMES} = await import(`./hud.js${VERSION_QUERY}`);
 const {Animator} = await import(`./animator.js${VERSION_QUERY}`);
-
-const DEFAULTS = {
-    theme: 'orbital',     // tactical | terminal | orbital | orbitalLight | card
-    monitor: 'primary',   // 'primary' | 'secondary' | số thứ tự màn hình (0, 1, ...)
-    side: 'left',         // 'left' | 'right'
-    widthFraction: 0.25,  // tỉ lệ chiều rộng so với màn hình được chọn
-    gap: 12,              // khoảng cách tới mép / dock / top bar
-    intervalMs: 3000,     // chu kỳ lấy mẫu số liệu
-    animMs: 3000,         // thời gian hiệu ứng chuyển số liệu (0 = tắt hiệu ứng); bằng intervalMs = chuyển liên tục
-    fps: 10,              // số khung hình/giây trong lúc chạy hiệu ứng (30 tốn CPU gấp đôi, nóng máy)
-};
+const {DEFAULTS, MIN_INTERVAL_MS} = await import(`./defaults.js${VERSION_QUERY}`);
 
 function loadConfig(dir) {
     try {
@@ -110,6 +102,7 @@ export class HudCore {
                     this._frameId = 0;
                     this._onSample();
                 }
+                this._syncIndicator();
                 this._relayout();
             });
         } catch (e) {
@@ -119,12 +112,61 @@ export class HudCore {
         this._animator = new Animator(this._cfg.animMs);
         this._onSample();
         this._startTimer();
+        this._syncIndicator();
+    }
+
+    // Biểu tượng trên thanh trên cùng: bấm vào mở cửa sổ cấu hình.
+    // Không bắt được cú bấm trên chính HUD: cửa sổ trong suốt của Desktop Icons (ding)
+    // phủ lên lớp hình nền nên nhận hết sự kiện chuột ở vùng desktop.
+    _syncIndicator() {
+        const want = this._cfg.showIndicator !== false;
+        if (want && !this._indicator) {
+            this._indicator = new PanelMenu.Button(0.0, 'System HUD', true);
+            this._indicator.add_child(new St.Icon({
+                icon_name: 'utilities-system-monitor-symbolic',
+                style_class: 'system-status-icon',
+            }));
+            this._indicator.connect('button-press-event', () => {
+                this._openSettings();
+                return Clutter.EVENT_STOP;
+            });
+            this._indicator.connect('touch-event', (_a, event) => {
+                if (event.type() === Clutter.EventType.TOUCH_BEGIN)
+                    this._openSettings();
+                return Clutter.EVENT_STOP;
+            });
+            Main.panel.addToStatusArea('system-hud-indicator', this._indicator);
+        } else if (!want && this._indicator) {
+            this._indicator.destroy();
+            this._indicator = null;
+        }
+    }
+
+    // Cửa sổ cấu hình là app GTK riêng (settings-app.js) chạy bằng gjs, chỉ mở một bản.
+    // Không dùng openExtensionPrefs: shell chỉ biết extension có prefs.js từ lần đăng nhập
+    // nạp nó, còn app riêng chạy được ngay sau khi cài.
+    _openSettings() {
+        try {
+            const proc = Gio.Subprocess.new(
+                ['gjs', '-m', GLib.build_filenamev([this.path, 'settings-app.js'])],
+                Gio.SubprocessFlags.NONE);
+            proc.wait_async(null, (p, res) => {
+                try {
+                    p.wait_finish(res);
+                } catch (e) {
+                    // bỏ qua
+                }
+            });
+        } catch (e) {
+            console.error(`[system-hud] không mở được cửa sổ cấu hình: ${e.message}`);
+            Main.notifyError('System HUD', `Không mở được cửa sổ cấu hình: ${e.message}`);
+        }
     }
 
     _startTimer() {
         if (this._timerId)
             GLib.source_remove(this._timerId);
-        const interval = Math.max(500, this._cfg.intervalMs);
+        const interval = Math.max(MIN_INTERVAL_MS, this._cfg.intervalMs);
         this._timerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, interval, () => {
             this._sensors.update();
             this._onSample();
@@ -163,6 +205,8 @@ export class HudCore {
         }
         this._animator = null;
         this._display = null;
+        this._indicator?.destroy();
+        this._indicator = null;
         if (this._monitorsId) {
             Main.layoutManager.disconnect(this._monitorsId);
             this._monitorsId = 0;
