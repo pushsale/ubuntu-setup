@@ -1,6 +1,6 @@
 # System HUD cho Windows
 
-Bảng theo dõi CPU, RAM, GPU, ổ đĩa, mạng vẽ thẳng lên desktop Windows, nằm dưới mọi cửa sổ, theme Orbital như bản [Ubuntu](../system-hud/README.md). Mỗi khối có một vòng tròn: % tải CPU, % RAM, % tải GPU, % thời gian bận của từng ổ đĩa (tối đa 2 ổ), tốc độ tải xuống / tải lên so với băng thông của card mạng. Một file `.exe`, không cần cài runtime, không cần quyền admin, font Noto nhúng sẵn.
+Bảng theo dõi CPU, RAM, GPU, ổ đĩa, mạng vẽ thẳng lên desktop Windows, nằm dưới mọi cửa sổ, theme Orbital như bản [Ubuntu](../system-hud/README.md). Mỗi khối có một vòng tròn: % tải CPU, % RAM, % tải GPU, % thời gian bận của từng ổ đĩa (tối đa 2 ổ), tốc độ tải xuống / tải lên so với băng thông của card mạng (dưới 5% băng thông thì vòng chỉ nhúc nhích trong 5% đầu, theo đỉnh vài phút gần đây). Một file `.exe`, không cần cài runtime, không cần quyền admin, font Noto nhúng sẵn.
 
 > **In English.** A transparent system monitor (CPU, RAM, GPU, disk, network) drawn on the Windows desktop, below all windows. Port of the Ubuntu GNOME extension in `../system-hud`.
 

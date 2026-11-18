@@ -62,7 +62,7 @@ Một bảng thông số hệ thống trong suốt, nằm cố định sát mép
 | 2026-11-18 | Khối STORAGE vẽ lại: mỗi ổ vật lý (tối đa 2) một vòng tròn kiểu CPU — số lớn là % ổ bận (disk IO), chữ nhỏ và vòng trong là % dung lượng; bên phải 3 dòng READ / WRITE / dung lượng đã dùng / tổng |
 | 2026-11-18 | Khối CPU và GPU bỏ dòng TEMP bên phải vì nhiệt độ đã có trong vòng tròn |
 | 2026-11-18 | Chữ dễ đọc như bản Ubuntu: nhúng bộ font Noto vào exe thay cho Segoe UI / Bahnschrift, chữ nhỏ vẽ khớp pixel và to hơn 10% (chỉnh bằng `textScale`). Vòng tròn CPU thu nhỏ bằng GPU và ổ đĩa; CLOCK, PROC / THR, THREADS và đồ thị tải CPU xếp gọn bên phải vòng tròn |
-| 2026-11-18 | Khối NETWORK dạng hai vòng tròn DOWN / UP (vòng = % băng thông của link đang dùng), bên phải mỗi vòng có PEAK / AVG / TOTAL; tiêu đề hiện tốc độ link |
+| 2026-11-18 | Khối NETWORK dạng hai vòng tròn DOWN / UP (vòng = % băng thông của link đang dùng; dưới 5% thì nhúc nhích trong 5% đầu theo đỉnh gần đây), bên phải mỗi vòng có PEAK / AVG / TOTAL; tiêu đề hiện tốc độ link |
 | 2026-11-18 | Khối MEMORY dạng vòng tròn như GPU (% RAM, GB đã dùng), bên phải USED / AVAILABLE / CACHED / PAGEFILE. Mọi khối giờ đều dùng vòng tròn cùng cỡ; bỏ đồ thị lịch sử mạng để HUD vừa màn 1080p |
 
 ## Tech stack

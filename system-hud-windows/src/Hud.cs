@@ -270,12 +270,27 @@ namespace SystemHud
         }
 
         // Gauge tốc độ mạng (bản Windows thêm): vòng = % băng thông đang dùng, tuyến tính theo max (tốc độ link).
-        // Từng thử thang log (1 KB/s .. link): vài KB/s đã chiếm 1/4 vòng, dễ hiểu nhầm nên bỏ.
+        // Khi chưa tới 5% link, 5% đầu vòng tính theo tốc độ so với đỉnh gần đây (peak của lịch sử): bằng đỉnh -> 5%,
+        // nửa đỉnh -> 2.5%, để lúc mạng nhẹ vẫn thấy vòng nhúc nhích. Từ 5% link trở lên là tỉ lệ thật; hai đoạn
+        // nối liền ở mốc 5% (vì rate <= peak). Từng thử log cả vòng: vài KB/s đã chiếm 1/4 vòng, dễ hiểu nhầm nên bỏ.
         // Số lớn = tốc độ, dưới là đơn vị, trên là nhãn.
-        public void RateGauge(Graphics g, double cx, double cy, double r, double rate, double max, double[] col, string label)
+        public const double NetLowBand = 0.05;
+
+        public static double RateFraction(double rate, double max, double peak)
+        {
+            if (max <= 0 || rate <= 0)
+                return 0;
+            double lin = Math.Min(1, rate / max);
+            if (lin >= NetLowBand)
+                return lin;
+            double rel = peak > 0 ? Math.Min(1, rate / peak) : 0;
+            return Math.Max(lin, NetLowBand * rel);
+        }
+
+        public void RateGauge(Graphics g, double cx, double cy, double r, double rate, double max, double peak, double[] col, string label)
         {
             double a0 = -Math.PI / 2;
-            double p = max > 0 ? Math.Min(1, Math.Max(0, rate / max)) : 0;
+            double p = RateFraction(rate, max, peak);
             Gfx.StrokeCircle(g, cx, cy, r, 1.5, C.Main, 0.28);
             double a1 = a0 + Gfx.TAU * Math.Max(0.002, p);
             Gfx.StrokeArc(g, cx, cy, r, a0, a1, 12, col, 0.12, round: true);
@@ -645,7 +660,8 @@ namespace SystemHud
         {
             const double r = 58;
             double cx = x + r + 4, cy = top + 66;
-            T.RateGauge(g, cx, cy, r, rate, max, col, label);
+            double peak = Math.Max(rate, hist.Length > 0 ? hist.Max() : 0);
+            T.RateGauge(g, cx, cy, r, rate, max, peak, col, label);
             double rx = cx + r + 12;
             var vf = Fonts.Get(FontRole.Mono, 12.5);
             void Item(double ry, string name, string value, double[] c)
@@ -654,7 +670,7 @@ namespace SystemHud
                 Gfx.Text(g, value, rx, ry + 11, vf, c);
             }
             // đỉnh / trung bình trên cửa sổ lịch sử (HISTORY mẫu), tổng từ lúc card mạng bật
-            Item(cy - 54, "PEAK", Fmt.Rate(hist.Length > 0 ? hist.Max() : 0), col);
+            Item(cy - 54, "PEAK", Fmt.Rate(peak), col);
             Item(cy - 16, "AVG", Fmt.Rate(hist.Length > 0 ? hist.Average() : 0), T.C.Main);
             Item(cy + 22, "TOTAL", Fmt.Bytes(total), T.C.Main);
         }
