@@ -14,7 +14,9 @@ function lerp(a, b, t, key) {
         // mảng lịch sử: giữ nguyên dữ liệu mới, phần trượt do `shift` lo
         if (HISTORY_KEY.test(key ?? '') || !Array.isArray(a) || a.length !== b.length)
             return b;
-        return b.map((x, i) => lerp(a[i], x, t));
+        // mảng đối tượng (vd danh sách ổ đĩa): phần tử đổi danh tính (name khác) thì lấy luôn giá trị mới
+        return b.map((x, i) => (x && typeof x === 'object' && !Array.isArray(x) && a[i]?.name !== x.name
+            ? x : lerp(a[i], x, t)));
     }
     if (b && typeof b === 'object') {
         const out = {};

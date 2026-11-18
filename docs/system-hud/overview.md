@@ -46,7 +46,7 @@ System HUD vẽ một bảng theo dõi máy (CPU, RAM, GPU, ổ đĩa, mạng, n
 
 | Đối tượng | Nhận được |
 |---|---|
-| Người dùng máy | Nhìn tức thì: CPU từng nhân + nhiệt độ, RAM/swap, GPU, dung lượng và tốc độ ổ đĩa, tốc độ mạng + IP, tên máy, kernel, uptime, giờ |
+| Người dùng máy | Nhìn tức thì: CPU từng nhân + nhiệt độ + số tiến trình/luồng, RAM/swap, GPU, từng ổ vật lý (% thời gian bận, tốc độ đọc/ghi, dung lượng), tốc độ mạng so với tốc độ link + đỉnh/trung bình + IP, tên máy, kernel, uptime, giờ |
 | Người tuỳ biến | 5 kiểu giao diện; đổi màn hình/mép/độ rộng/tốc độ cập nhật trong cửa sổ cấu hình hoặc bằng một lệnh |
 | Người phát triển | Ảnh xem trước theme không cần cài vào shell (`tools/preview.js`) |
 
@@ -61,6 +61,7 @@ System HUD vẽ một bảng theo dõi máy (CPU, RAM, GPU, ổ đĩa, mạng, n
 | 2026-11-13 | Đổi tên thành System HUD (UUID `system-hud@ubuntu-assistant`) |
 | 2026-11-16 | Cập nhật 5 giây/lần, hiệu ứng chuyển cũng 5 giây; cửa sổ cấu hình mở từ biểu tượng trên thanh trên cùng |
 | 2026-11-13 | Hiệu ứng chuyển số liệu kéo dài bằng cả chu kỳ 3 giây (chạy liên tục); số GPU Clock/Fan làm tròn thành số nguyên; vòng đo GPU phóng to |
+| 2026-11-18 | Bố cục theo bản Windows: mỗi khối một vòng đo (ổ đĩa và mạng mỗi bên một vòng); CPU/GPU bỏ dòng nhiệt độ trùng, CPU bỏ dòng LOAD, thêm số tiến trình/luồng; ổ đĩa theo từng ổ vật lý (tối đa 2) với % thời gian bận; mạng tính theo tốc độ link |
 
 ## Tech stack
 
@@ -70,7 +71,7 @@ System HUD vẽ một bảng theo dõi máy (CPU, RAM, GPU, ổ đĩa, mạng, n
 
 ## Quy mô hiện tại
 
-- Khoảng 2.700 dòng: hud.js 1.463 dòng (5 theme), sensors.js 393, core.js khoảng 280, settings.js khoảng 220, các file khác khoảng 380.
+- Khoảng 2.800 dòng: hud.js khoảng 1.560 dòng (5 theme), sensors.js khoảng 510, core.js khoảng 280, settings.js khoảng 220, các file khác khoảng 380.
 - 5 theme, 6 khối thông tin (header, CPU, RAM, GPU, Disk, Network) + footer.
 - Đang chạy trên 1 máy: theme orbital, màn phụ (HDMI-3), mép trái, rộng 25%, cập nhật 5 giây/lần, hiệu ứng 5 giây ở 10 khung/giây (30 khung/giây làm gnome-shell tốn khoảng 43% một nhân CPU và CPU nóng hơn rõ; 15 khung/giây khoảng 31%; 5 khung/giây khoảng 22% nhưng giật).
 
@@ -87,12 +88,13 @@ System HUD vẽ một bảng theo dõi máy (CPU, RAM, GPU, ổ đĩa, mạng, n
 - Nút Cài đặt trong ứng dụng Extensions chỉ xuất hiện sau lần đăng nhập đầu tiên kể từ khi cài bản có cửa sổ cấu hình; biểu tượng trên thanh trên cùng dùng được ngay.
 - GPU: đủ thông số với NVIDIA (cần `nvidia-smi`); AMD chỉ có % tải; Intel chưa hỗ trợ.
 - Nhiệt độ CPU chỉ nhận cảm biến `coretemp`, `k10temp`, `zenpower`.
-- Ổ đĩa và mạng chỉ theo dõi phân vùng `/` và card mạng có route mặc định.
+- Ổ đĩa: chỉ tính ổ có phân vùng đang mount (ổ chưa mount như ổ HDD phụ trên máy này không hiện); khối STORAGE hiện tối đa 2 ổ. Theme `card` vẫn chỉ hiện phân vùng `/`.
+- Mạng chỉ theo dõi card có route mặc định. Card ảo (VPN `tun0`) báo tốc độ link giả 10 Gbps nên vòng mạng gần như luôn ở đoạn 5% đầu.
 - Đổi tên UUID cần đăng xuất một lần để GNOME nạp tên mới.
 
 ## Roadmap (tạm dự kiến)
 
-- Hỗ trợ GPU Intel, nhiều ổ đĩa.
+- Hỗ trợ GPU Intel.
 - Đóng gói giống Remote Shield để cài máy khác.
 
 ## Tài liệu liên quan

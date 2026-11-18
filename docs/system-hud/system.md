@@ -65,18 +65,21 @@ extension.js ── import('./core.js?v=<Date.now()>') ──► HudCore (core.j
 | Mẫu mới → chạy hiệu ứng | `_onSample` [core.js:178](../../system-hud/system-hud@ubuntu-assistant/core.js) |
 | Chọn màn hình (`primary`/`secondary`/số) | `_monitorIndex` [core.js:240](../../system-hud/system-hud@ubuntu-assistant/core.js) |
 | Tính vị trí/kích thước theo work area, mép, dock | `_relayout` [core.js:253](../../system-hud/system-hud@ubuntu-assistant/core.js) |
-| Khởi tạo cảm biến (chọn file nhiệt độ, ổ gốc, GPU AMD) | `Sensors` constructor [sensors.js:76](../../system-hud/system-hud@ubuntu-assistant/sensors.js) |
-| Một lần đo | `update` [sensors.js:146](../../system-hud/system-hud@ubuntu-assistant/sensors.js) |
-| CPU / RAM / disk / net | `_readCpu` [sensors.js:172](../../system-hud/system-hud@ubuntu-assistant/sensors.js), `_readMem` 211, `_readDiskUsage` 240, `_readDisk` 255, `_readNet` 288 |
-| NVIDIA: luồng `nvidia-smi` | `_startNvidia` [sensors.js:334](../../system-hud/system-hud@ubuntu-assistant/sensors.js), `_parseNvidia` 372 |
-| Nội suy | `Animator` [animator.js:30](../../system-hud/system-hud@ubuntu-assistant/animator.js) |
-| Vẽ | `drawHud` [hud.js:1415](../../system-hud/system-hud@ubuntu-assistant/hud.js), `SECTIONS` [hud.js:1400](../../system-hud/system-hud@ubuntu-assistant/hud.js) |
-| Theme | tactical [hud.js:235](../../system-hud/system-hud@ubuntu-assistant/hud.js), terminal 536, `makeOrbital` 796 → orbital 1044 / orbitalLight 1051, card 1058, `THEMES` 1311 |
+| Khởi tạo cảm biến (chọn file nhiệt độ, ổ gốc, danh sách ổ, GPU AMD) | `Sensors` constructor [sensors.js:76](../../system-hud/system-hud@ubuntu-assistant/sensors.js) |
+| Một lần đo | `update` [sensors.js:152](../../system-hud/system-hud@ubuntu-assistant/sensors.js) |
+| CPU / RAM / disk / net | `_readCpu` [sensors.js:183](../../system-hud/system-hud@ubuntu-assistant/sensors.js), `_readMem` 225, `_readDiskUsage` 254, `_readDisk` 269, `_findDisks` 309, `_readDisks` 374, `_readLinkSpeed` 394, `_readNet` 413 |
+| NVIDIA: luồng `nvidia-smi` | `_startNvidia` [sensors.js:460](../../system-hud/system-hud@ubuntu-assistant/sensors.js), `_parseNvidia` 498 |
+| Nội suy | `Animator` [animator.js:33](../../system-hud/system-hud@ubuntu-assistant/animator.js) |
+| Vẽ | `drawHud` [hud.js:1509](../../system-hud/system-hud@ubuntu-assistant/hud.js), `SECTIONS` [hud.js:1494](../../system-hud/system-hud@ubuntu-assistant/hud.js); khối `drawCpu` 1352, `drawMem` 1371, `drawGpu` 1392, `drawDisk` 1415 (+ `diskCell` 1434), `drawNet` 1467 (+ `netCell` 1480, `rateFraction` 1458) |
+| Theme | tactical [hud.js:226](../../system-hud/system-hud@ubuntu-assistant/hud.js), terminal 531, `makeOrbital` 792 → orbital 1059 / orbitalLight 1066, card 1073, `THEMES` 1326 |
 
 Chi tiết từng bước:
 - **Nhiệt độ CPU**: tìm trong `/sys/class/hwmon/*` có `name` là `coretemp`, `k10temp` hoặc `zenpower`, ưu tiên nhãn `Package id 0`, `Tctl`, `Tdie`.
 - **Nhiệt độ ổ đĩa**: hwmon `nvme` nhãn `Composite`, hoặc `drivetemp`.
-- **CPU**: % tính từ hiệu số `/proc/stat` giữa 2 lần đo; tần số lấy từ `/proc/cpuinfo`.
+- **CPU**: % tính từ hiệu số `/proc/stat` giữa 2 lần đo; tần số lấy từ `/proc/cpuinfo`. `threadCount` = phần sau dấu `/` ở trường 4 của `/proc/loadavg` (tổng luồng của hệ thống); `procs` = số thư mục tên số trong `/proc`. `load[3]` vẫn đọc (theme `card` dùng) nhưng bố cục chung không hiện.
+- **Danh sách ổ vật lý** (`_findDisks`, 10 tick một lần): duyệt `/proc/mounts`, bỏ `loop`/`ram`/`zram`/`sr`/`fd` và mount dưới `/boot`; `/dev/mapper/<tên>` đổi thành `dm-N` qua `/sys/block/dm-*/dm/name`; phân vùng → ổ cha bằng cách tìm trong `/sys/block/<ổ>/`, `dm-N` lần theo `slaves/`. Dung lượng = tổng `query_filesystem_info` của các phân vùng (mỗi phân vùng một lần dù mount nhiều chỗ). Model `/sys/block/<ổ>/device/model`; nhiệt độ `device/hwmon*/temp1_input` (NVMe) hoặc `device/hwmon/hwmon*/temp1_input` (drivetemp). Ổ chứa `/` đứng đầu.
+- **% ổ bận** (`_readDisks`, mỗi tick): `/sys/block/<ổ>/stat` trường 10 `io_ticks` (ms có I/O) → `Δio_ticks / (Δt × 10)` kẹp 0–100, như "Active time" của Task Manager; đọc/ghi từ trường 3 / 7 (sector 512 byte). Mẫu đầu `active = null` (gauge hiện `--`).
+- **Tốc độ link** (`_readLinkSpeed`, 30 tick một lần và khi đổi card): `/sys/class/net/<iface>/speed` (Mbps) → byte/s; lỗi hoặc ≤ 0 thì 0 (bố cục coi như 1 Gbps).
 - **Lịch số đo**:
   - Dung lượng ổ: 10 tick một lần (`statvfs`).
   - IP: 30 tick một lần, chạy `ip -4 -o addr show dev <iface>`.
@@ -88,6 +91,7 @@ Chi tiết từng bước:
 - **Animator**:
   - Nội suy tuyến tính mọi số giữa mẫu cũ và mẫu mới, easing `easeOutCubic`.
   - Mảng lịch sử (khoá kết thúc bằng `history`/`Hist`) không nội suy; thay vào đó `state.shift` (1→0) làm đồ thị trượt.
+  - Mảng đối tượng cùng độ dài (`disks`) nội suy từng phần tử; phần tử có `name` khác mẫu trước (thứ tự ổ đổi) thì lấy luôn giá trị mới.
   - `tick` lẻ dùng cho chuyển động trang trí.
   - Mẫu đầu tiên hiện ngay, không có hiệu ứng.
 
@@ -98,11 +102,13 @@ Không có database. `Sensors.state` là input duy nhất của `drawHud` (xem [
 ```
 { tick, historySeconds, shift (do Animator thêm),
   sys:  {hostname, os, kernel, uptime},
-  cpu:  {model, threads, usage, perCore[], temp, freq, freqMax, load[3], history[]},
+  cpu:  {model, threads, usage, perCore[], temp, freq, freqMax, load[3], procs, threadCount, history[]},
   mem:  {total, used, percent, cached, swapTotal, swapUsed, swapPercent, history[]},
   gpu:  {available, name, util, temp, memUsed, memTotal, memPercent, power, powerLimit, fan, clock, history[]},
-  disk: {mount:'/', device, total, used, percent, readRate, writeRate, readHist[], writeHist[], temp},
-  net:  {iface, ip, rxRate, txRate, rxTotal, txTotal, rxHist[], txHist[]} }
+  disk: {mount:'/', device, total, used, percent, readRate, writeRate, readHist[], writeHist[], temp},   // chỉ theme card dùng
+  disks: [{name:'nvme0n1', mount:'/ /data', device(model), total, used, percent, readRate, writeRate,
+           active (% bận, null ở mẫu đầu), temp}],                                              // ổ chứa / đứng đầu
+  net:  {iface, ip, rxRate, txRate, rxTotal, txTotal, linkSpeed (byte/s, 0 = không rõ), rxHist[], txHist[]} }
 ```
 
 - Lịch sử giữ `HISTORY = 60` mẫu. Hằng số này khai báo 2 lần, ở [sensors.js:8](../../system-hud/system-hud@ubuntu-assistant/sensors.js) và [hud.js:7](../../system-hud/system-hud@ubuntu-assistant/hud.js), phải luôn khớp nhau.
@@ -113,7 +119,9 @@ Không có database. `Sensors.state` là input duy nhất của `drawHud` (xem [
 
 - **Theme object** (dùng bởi bố cục chung):
   - Vẽ khung: `panel(cr, W, H, s)`, `header(cr, x, y, w, h, s)`, `footer(...)`, `overlay(cr, W, H, s)`.
-  - Thành phần: `section`, `label`, `value`, `stat`, `bar`, `gauge`, `graph`, `cores`.
+  - Thành phần: `section`, `label`, `value`, `stat`, `bar`, `gauge`, `graph`, `cores`; tuỳ chọn `item(cr, x, y, label, value, color)` (mục hai dòng, chỉ orbital có; theme khác ghép từ `label` + `value`).
+  - `gauge(cr, cx, cy, r, pct, o)`: `o.temp`, `o.label`, `o.small` như cũ; thêm `o.color` (màu vòng), `o.text` + `o.noPct` (chữ số lớn), `o.top` + `o.topColor` (chữ nhỏ phía trên, mặc định nhiệt độ), `o.topLabel` (kiểu nhãn), `o.inner` + `o.innerColor` (cung/vòng trong, mặc định nhiệt độ; `null` = không có). Cả tactical, terminal, orbital đều nhận đủ các khoá này.
+  - Màu theo mức: `level(p)` (bố cục gọi `T.level`).
   - Màu: `tempColor`, bảng màu `c`.
   - Theme có `draw(cr, W, H, s)` và `neededH` (hiện là `card`) thì tự vẽ toàn bộ và bỏ qua `SECTIONS`.
 - **Theme mới**: thêm vào hud.js rồi đăng ký ở `THEMES`. `loadConfig` đổi tên theme không có trong `THEMES` thành `orbital`.
@@ -156,11 +164,12 @@ Thiết lập ngoài cũng ảnh hưởng tới HUD:
 
 - **Bố cục chung**, thiết kế cho bề rộng 480 px rồi co giãn:
   - header 74 px: tên máy, OS, kernel, giờ;
-  - CPU 242 px: vòng đo, từng nhân, nhiệt, tần số, load, đồ thị;
-  - RAM 128 px;
-  - GPU 176 px;
-  - Disk 152 px;
-  - Network 178 px;
+  - CPU 172 px: vòng đo r 58 (nhiệt độ trong vòng), cột phải từ `x + 150`: CLOCK, PROC / THR, từng luồng, đồ thị tải;
+  - RAM 172 px: vòng % RAM (chữ trên = GB đã dùng), USED, AVAILABLE, CACHE, SWAP + thanh;
+  - GPU 172 px: vòng tải (nhiệt độ trong vòng), POWER, FAN, CLOCK, VRAM + thanh;
+  - Disk 186 px: mỗi ổ vật lý một ô (tối đa 2, chia đôi bề rộng): vòng = % ổ bận (cung trong + chữ trên = % dung lượng), READ / WRITE / USED, dòng dưới mount · model · nhiệt độ;
+  - Network 172 px: hai ô DOWN / UP, vòng = % tốc độ link (dưới 5% link thì 5% đầu vòng theo tỉ lệ so với đỉnh lịch sử), PEAK / AVG / TOTAL; tiêu đề phụ thêm tốc độ link;
+  - Bố cục các khối giống bản Windows (`system-hud-windows/src/Hud.cs`); khác nhau chỉ ở nhãn (`CACHE`/`SWAP` so với `CACHED`/`PAGEFILE`) và mount point thay cho ký tự ổ;
   - footer 22 px: uptime.
 - **Màu theo mức tải/nhiệt**: `heat()`/`heatLight()` [hud.js:167](../../system-hud/system-hud@ubuntu-assistant/hud.js).
 - **Ngày 2026-11-13** (#23): vòng đo GPU phóng to (r 44 → 58, tâm `x+68, top+68`), cỡ số trong vòng nhỏ tính theo bán kính (`r × 0.66`).
@@ -180,6 +189,7 @@ Thiết lập ngoài cũng ảnh hưởng tới HUD:
 | 2026-11-12 | Gauge orbital bỏ thước vạch và 2 cung xoay ngoài |
 | 2026-11-13 | #21: thử `animMs` = `intervalMs` = 3000 (hiệu ứng chạy suốt chu kỳ). #22: làm tròn GPU Clock/Fan (số nội suy hiện 10 chữ số thập phân). #23: vòng đo GPU r 44 → 58 |
 | 2026-11-16 | #34: chu kỳ lấy số liệu và thời gian chuyển 3 s → 5 s; cửa sổ cấu hình (biểu tượng trên thanh trên cùng, `settings-app.js`, `prefs.js`); `defaults.js` dùng chung; `hud-config.sh ui` |
+| 2026-11-18 | Bỏ dòng `TEMP` ở CPU, GPU (đã có trong vòng) và dòng `LOAD`. Port bố cục bản Windows (commit c668173): gauge r 58 cho mọi khối, `gauge` nhận tuỳ chọn chung, `item`; sensors thêm `disks` (ổ vật lý, % bận từ `io_ticks`), `net.linkSpeed`, `cpu.procs`/`threadCount`; animator nội suy mảng đối tượng. Không port font nhúng và `textScale` (chỉ để bản Windows khớp cỡ chữ Pango của bản này) |
 | 2026-11-13 | #18: đổi tên Sci-Fi HUD → System HUD (UUID mới). Trên máy này đã gỡ hẳn UUID cũ và đăng nhập lại để nạp sạch; `install.sh` không giữ code chuyển đổi (bản cũ chưa từng được cài ở máy khác) |
 
 ## 9. Cấu trúc thư mục
@@ -281,6 +291,9 @@ Trạng thái runtime (2026-11-16):
 | Cửa sổ cấu hình là app GTK riêng (`gjs -m settings-app.js`), `prefs.js` chỉ bọc lại | Shell chỉ biết extension có `prefs.js` từ lần đăng nhập nạp nó (`openExtensionPrefs` kiểm `hasPrefs`); app riêng chạy được ngay sau `install.sh`, và mở được từ terminal |
 | `extension.js` không đổi khi thêm cửa sổ cấu hình | `extension.js` bị cache tới lần đăng nhập sau; mọi thứ mới nằm trong `core.js` và module nạp kèm `VERSION_QUERY` |
 | Tên "System HUD" | Người dùng chọn ngày 2026-11-13 (thay "Sci-Fi HUD"); đổi tên cần hỏi trước |
+| Bố cục các khối theo bản Windows (2026-11-18) | Chủ dự án yêu cầu bản Ubuntu đổi theo bản Windows. Một bố cục chung cho tactical / terminal / orbital, nên `gauge` của cả ba theme nhận cùng bộ tuỳ chọn thay vì thêm `diskGauge` / `valueGauge` / `rateGauge` riêng như Hud.cs |
+| Vòng mạng tính tuyến tính theo tốc độ link, 5% đầu theo đỉnh lịch sử | Lấy theo bản Windows: thang log làm vài KB/s chiếm 1/4 vòng, dễ hiểu nhầm |
+| % ổ bận từ `io_ticks` | Cùng nghĩa "Active time" của Task Manager (bản Windows dùng `100 - % Idle Time`) |
 
 ## 14. Common Pitfalls
 

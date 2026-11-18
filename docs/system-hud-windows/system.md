@@ -256,7 +256,7 @@ Bản Ubuntu nằm cùng repo (`system-hud/`). Khi có commit mới, xem `git lo
 
 - `side` mặc định `right` (yêu cầu của chủ dự án cho Windows; bản Ubuntu `left`).
 - `autostart` (chỉ có ở Windows; Ubuntu do GNOME bật extension).
-- Dòng `LOAD` → `PROC / THR`; `SWAP` → `PAGEFILE`; `CACHE` → `CACHED`.
+- `SWAP` → `PAGEFILE`; `CACHE` → `CACHED`; ký tự ổ (`C:`) thay cho mount point. Từ 2026-11-18 bản Ubuntu đã port bố cục các khối bên dưới (CPU, MEMORY, GPU, STORAGE, NETWORK) và cũng hiện `PROC / THR`; các mục dưới đây giữ để biết lý do thiết kế.
 - NETWORK vẽ khác bản gốc (bản gốc: hai số lớn DOWNLINK / UPLINK + đồ thị gương cao 74 + dòng RX / SCALE / TX). Bản Windows (`DrawNet`, `NetCell`, `Orbital.RateGauge` trong Hud.cs; yêu cầu chủ dự án 2026-11-18):
   - Hai ô DOWN / UP (cách nhau 16), mỗi ô một gauge r 58: vòng = **% băng thông đang dùng, tuyến tính** theo tốc độ link (không rõ link thì 125 MB/s = 1 Gbps). Khi chưa tới 5% link, đoạn 5% đầu vòng tính theo tốc độ so với PEAK (đỉnh lịch sử): bằng đỉnh → 5%, nửa đỉnh → 2.5%, để mạng nhẹ vẫn thấy vòng nhúc nhích; từ 5% link trở lên là tỉ lệ thật, hai đoạn nối liền ở mốc 5% (`Orbital.RateFraction`, `NetLowBand = 0.05`). Đã thử thang log (1 KB/s → link) nhưng vài KB/s đã chiếm khoảng 1/4 vòng, dễ hiểu nhầm, chủ dự án chọn tính đúng tỉ lệ (2026-11-18). Màu: down = `C.Main`, up = `C.Accent`.
   - Trong vòng: nhãn `▼ DOWN` / `UP ▲` (màu của vòng), số tốc độ lớn (thu 14% khi dài hơn 3 ký tự), đơn vị bên dưới.
@@ -272,7 +272,8 @@ Bản Ubuntu nằm cùng repo (`system-hud/`). Khi có commit mới, xem `git lo
   - Bỏ đồ thị đọc/ghi. Khối cao 186.
   - Quyết định bố cục theo yêu cầu chủ dự án (2026-11-18): % disk IO là số chính; dung lượng GB đưa ra ngoài vòng tròn; vòng tròn cỡ bằng GPU.
   - % ổ bận bên Linux lấy được từ `io_ticks` trong `/proc/diskstats` nếu muốn port ngược.
-- Chỉ có theme `orbital` và `orbitalLight`.
+- Chỉ có theme `orbital` và `orbitalLight` (bản Ubuntu có thêm tactical, terminal, card).
+- Font Noto nhúng và `textScale` chỉ có ở Windows: bản Ubuntu vẽ bằng Pango với Noto cài sẵn, không cần.
 
 Chưa đồng bộ (chờ chủ dự án quyết, 2026-11-16): bản Ubuntu đã đổi `intervalMs`/`animMs` mặc định 3000 → 5000 và có cửa sổ cấu hình (#34); bản Windows vẫn 3000 và chỉ cấu hình bằng sửa `config.json`.
 

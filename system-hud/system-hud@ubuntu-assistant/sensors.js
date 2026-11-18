@@ -90,7 +90,7 @@ export class Sensors {
                 model: shortCpuModel(model),
                 threads: (cpuinfo.match(/^processor\s*:/gm) ?? []).length,
                 usage: 0, perCore: [], temp: null, freq: null, freqMax: null,
-                load: [0, 0, 0], history: [],
+                load: [0, 0, 0], procs: 0, threadCount: 0, history: [],
             },
             mem: {
                 total: 0, used: 0, percent: 0, cached: 0,
@@ -105,19 +105,25 @@ export class Sensors {
                 mount: '/', device: '', total: 0, used: 0, percent: 0,
                 readRate: 0, writeRate: 0, readHist: [], writeHist: [], temp: null,
             },
+            // mỗi ổ vật lý có phân vùng đang mount (trừ /boot*) một mục, ổ chứa "/" đứng đầu
+            disks: [],
             net: {
                 iface: '', ip: '', rxRate: 0, txRate: 0, rxTotal: 0, txTotal: 0,
+                linkSpeed: 0, // byte/s, 0 = không rõ
                 rxHist: [], txHist: [],
             },
         };
 
         this._prevCpu = {};
         this._prevDisk = null;
+        this._prevDisks = {};
+        this._diskInfo = {}; // tên ổ -> {model, tempPath}
         this._prevNet = null;
         this._prevTime = 0;
 
         this._cpuTempPath = findTempSensor(['coretemp', 'k10temp', 'zenpower'], /Package id 0|Tctl|Tdie/);
         this._findRootDisk();
+        this._findDisks();
         this._diskTempPath = this.state.disk.device.startsWith('nvme')
             ? findTempSensor(['nvme'], /Composite/)
             : findTempSensor(['drivetemp'], /.*/);
@@ -153,6 +159,7 @@ export class Sensors {
         this._readCpu();
         this._readMem();
         this._readDisk(dt);
+        this._readDisks(dt);
         this._readNet(dt);
         if (this._amdGpuBusy && !this._nvProc) {
             s.gpu.available = true;
@@ -163,10 +170,14 @@ export class Sensors {
 
         s.sys.uptime = Number((readText('/proc/uptime') ?? '0').split(' ')[0]);
 
-        if (s.tick % 10 === 1)
+        if (s.tick % 10 === 1) {
             this._readDiskUsage();
-        if (s.tick % 30 === 1)
+            this._findDisks();
+        }
+        if (s.tick % 30 === 1) {
             this._refreshIp();
+            this._readLinkSpeed();
+        }
     }
 
     _readCpu() {
@@ -206,6 +217,9 @@ export class Sensors {
 
         const load = (readText('/proc/loadavg') ?? '0 0 0').split(' ');
         c.load = load.slice(0, 3).map(Number);
+        // trường 4 dạng "đang chạy/tổng": tổng số luồng của hệ thống; số tiến trình = số thư mục số trong /proc
+        c.threadCount = Number((load[3] ?? '').split('/')[1]) || 0;
+        c.procs = listDir('/proc').filter(n => /^\d+$/.test(n)).length;
     }
 
     _readMem() {
@@ -272,6 +286,117 @@ export class Sensors {
         d.temp = t === null ? null : t / 1000;
     }
 
+    // Ổ vật lý chứa thiết bị khối `dev` (phân vùng -> ổ cha; dm-N như LUKS/LVM -> lần theo slaves)
+    _parentDisk(dev, depth = 0) {
+        if (depth > 4)
+            return null;
+        const sys = `/sys/class/block/${dev}`;
+        if (dev.startsWith('dm-')) {
+            const slaves = listDir(`${sys}/slaves`);
+            return slaves.length ? this._parentDisk(slaves[0], depth + 1) : null;
+        }
+        if (readText(`${sys}/partition`) !== null) {
+            for (const d of listDir('/sys/block'))
+                if (listDir(`/sys/block/${d}`).includes(dev))
+                    return d;
+            return null;
+        }
+        return listDir('/sys/block').includes(dev) ? dev : null;
+    }
+
+    // Danh sách ổ vật lý: lấy từ /proc/mounts (bỏ loop, ram, zram, ổ quang và mount dưới /boot), mỗi phân vùng
+    // tính dung lượng một lần dù mount nhiều chỗ (btrfs subvolume). Ổ chứa "/" đứng đầu, còn lại theo tên.
+    _findDisks() {
+        const dmNames = {};
+        for (const d of listDir('/sys/block').filter(n => n.startsWith('dm-')))
+            dmNames[(readText(`/sys/block/${d}/dm/name`) ?? '').trim()] = d;
+        const byDisk = new Map(); // ổ -> {mounts: [], parts: Map(phân vùng -> mount point)}
+        for (const line of (readText('/proc/mounts') ?? '').split('\n')) {
+            const f = line.split(' ');
+            if (!f[0]?.startsWith('/dev/') || !f[1] || f[1].startsWith('/boot'))
+                continue;
+            const mnt = f[1].replace(/\\040/g, ' ');
+            let dev = f[0].slice(5);
+            if (dev.startsWith('mapper/'))
+                dev = dmNames[dev.slice(7)] ?? '';
+            if (!dev || /^(loop|ram|zram|sr|fd)/.test(dev))
+                continue;
+            const disk = this._parentDisk(dev);
+            if (!disk)
+                continue;
+            if (!byDisk.has(disk))
+                byDisk.set(disk, {mounts: [], parts: new Map()});
+            const e = byDisk.get(disk);
+            e.mounts.push(mnt);
+            if (!e.parts.has(dev))
+                e.parts.set(dev, mnt);
+        }
+        const old = new Map(this.state.disks.map(d => [d.name, d]));
+        const list = [];
+        for (const [name, e] of byDisk) {
+            let total = 0, used = 0;
+            for (const mnt of e.parts.values()) {
+                try {
+                    const info = Gio.File.new_for_path(mnt).query_filesystem_info(
+                        'filesystem::size,filesystem::free,filesystem::used', null);
+                    total += Number(info.get_attribute_uint64('filesystem::size'));
+                    used += Number(info.get_attribute_uint64('filesystem::used'));
+                } catch (err) {
+                    // không đọc được (mount mạng treo, quyền): bỏ qua phân vùng này
+                }
+            }
+            if (!this._diskInfo[name]) {
+                const dir = `/sys/block/${name}/device`;
+                const hw = [...listDir(dir).filter(n => n.startsWith('hwmon')).map(n => `${dir}/${n}`),
+                    ...listDir(`${dir}/hwmon`).map(n => `${dir}/hwmon/${n}`)]
+                    .map(h => `${h}/temp1_input`).find(t => readNumber(t) !== null) ?? null;
+                this._diskInfo[name] = {
+                    model: (readText(`${dir}/model`) ?? '').trim().replace(/\s+/g, ' ') || name,
+                    tempPath: hw,
+                };
+            }
+            const mounts = e.mounts.sort((a, b) => a.length - b.length);
+            const prev = old.get(name);
+            list.push({
+                name, mount: mounts.join(' '), device: this._diskInfo[name].model,
+                total, used, percent: total > 0 ? 100 * used / total : 0,
+                readRate: prev?.readRate ?? 0, writeRate: prev?.writeRate ?? 0,
+                active: prev?.active ?? null, temp: prev?.temp ?? null,
+            });
+        }
+        list.sort((a, b) => (b.mount.split(' ').includes('/') - a.mount.split(' ').includes('/')) || a.name.localeCompare(b.name));
+        this.state.disks = list;
+    }
+
+    // Đọc/ghi và % ổ bận của từng ổ trong state.disks. /sys/block/<ổ>/stat: trường 3 / 7 = sector đọc / ghi
+    // (512 byte), trường 10 = io_ticks (ms ổ có I/O đang chạy) -> % bận = Δio_ticks / Δt, như "Active time"
+    // của Task Manager.
+    _readDisks(dt) {
+        for (const d of this.state.disks) {
+            const f = (readText(`/sys/block/${d.name}/stat`) ?? '').trim().split(/\s+/).map(Number);
+            if (f.length < 10)
+                continue;
+            const cur = {rd: f[2] * 512, wr: f[6] * 512, io: f[9]};
+            const prev = this._prevDisks[d.name];
+            if (prev && dt > 0) {
+                d.readRate = Math.max(0, (cur.rd - prev.rd) / dt);
+                d.writeRate = Math.max(0, (cur.wr - prev.wr) / dt);
+                d.active = Math.max(0, Math.min(100, (cur.io - prev.io) / (dt * 10)));
+            }
+            this._prevDisks[d.name] = cur;
+            const tp = this._diskInfo[d.name]?.tempPath;
+            const t = tp ? readNumber(tp) : null;
+            d.temp = t === null ? null : t / 1000;
+        }
+    }
+
+    // Tốc độ link của card mạng mặc định: /sys/class/net/<iface>/speed (Mbps); card ảo / không rõ -> 0
+    _readLinkSpeed() {
+        const n = this.state.net;
+        const mbps = n.iface ? readNumber(`/sys/class/net/${n.iface}/speed`) : null;
+        n.linkSpeed = mbps !== null && mbps > 0 ? mbps * 1e6 / 8 : 0;
+    }
+
     _defaultIface() {
         let best = null;
         for (const line of (readText('/proc/net/route') ?? '').split('\n').slice(1)) {
@@ -292,6 +417,7 @@ export class Sensors {
             n.iface = iface;
             this._prevNet = null;
             this._refreshIp();
+            this._readLinkSpeed();
         }
         for (const line of (readText('/proc/net/dev') ?? '').split('\n')) {
             const idx = line.indexOf(':');

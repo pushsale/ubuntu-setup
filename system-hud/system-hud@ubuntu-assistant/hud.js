@@ -215,15 +215,6 @@ function alignX(x, width, align) {
     return x;
 }
 
-// Hàng "đã dùng | % | tổng": tránh đọc nhầm số dùng với số tối đa
-function usageRow(cr, T, x, y, w, used, total, pct, usedLabel = 'USED', totalLabel = 'TOTAL') {
-    T.label(cr, x, y, usedLabel);
-    T.value(cr, x, y + 13, used, {size: 20});
-    T.label(cr, x + w, y, totalLabel, {align: 'right'});
-    T.value(cr, x + w, y + 13, total, {size: 20, align: 'right', color: T.c.dim});
-    T.big(cr, x + w / 2, y - 2, `${Math.round(pct)}`, '%', T.level(pct), 'center');
-}
-
 function padArray(data) {
     const out = new Array(Math.max(0, HISTORY - data.length)).fill(0);
     return out.concat(data);
@@ -375,7 +366,7 @@ const tactical = (() => {
                 for (let j = 1; j < 4; j++)
                     cr.lineTo(...p[j]);
                 cr.closePath();
-                rgba(cr, on ? level(pct) : c.dim, on ? 1 : 0.45);
+                rgba(cr, on ? o.color ?? level(pct) : c.dim, on ? 1 : 0.45);
                 cr.fill();
             }
             // vòng nhiệt độ
@@ -384,10 +375,11 @@ const tactical = (() => {
             rgba(cr, c.main, 0.35);
             hexPath(cr, cx, cy, tr);
             cr.stroke();
-            if (o.temp !== null && o.temp !== undefined) {
-                const frac = Math.min(1, o.temp / 100);
+            const ring = 'inner' in o ? o.inner : o.temp;
+            if (ring !== null && ring !== undefined) {
+                const frac = Math.max(0, Math.min(1, ring / 100));
                 cr.setLineWidth(3.5);
-                rgba(cr, tempColor(o.temp));
+                rgba(cr, o.innerColor ?? tempColor(o.temp));
                 cr.moveTo(...hexPt(cx, cy, tr, 0));
                 for (let t = 0.01; t <= frac; t += 0.01)
                     cr.lineTo(...hexPt(cx, cy, tr, t));
@@ -408,10 +400,13 @@ const tactical = (() => {
             rgba(cr, c.main, 0.4);
             cr.stroke();
             const big = o.small ? 30 : 46;
-            const t = text(cr, `${Math.round(pct)}`, cx - 4, cy + 2, {font: `${F.num} ${big}px`, color: level(pct), align: 'center', valign: 'middle', glow: 0.2});
-            text(cr, '%', t.x + t.w + 1, cy + big * 0.12, {font: `${F.num} ${big * 0.4}px`, color: c.main});
+            const str = o.text ?? `${Math.round(pct)}`;
+            const fs = o.noPct && str.length > 3 ? big * 0.8 : big;
+            const t = text(cr, str, o.noPct ? cx : cx - 4, cy + 2, {font: `${F.num} ${fs}px`, color: o.color ?? level(pct), align: 'center', valign: 'middle', glow: 0.2});
+            if (!o.noPct)
+                text(cr, '%', t.x + t.w + 1, cy + big * 0.12, {font: `${F.num} ${big * 0.4}px`, color: c.main});
             text(cr, o.label, cx, cy + big * 0.55, {font: `${F.small} 10px`, color: c.text, alpha: 0.7, align: 'center', spacing: 2});
-            text(cr, `T ${fmtTemp(o.temp)}`, cx, cy - big * 0.62, {font: `${F.small} 10px`, color: tempColor(o.temp), align: 'center', valign: 'bottom'});
+            text(cr, o.top ?? `T ${fmtTemp(o.temp)}`, cx, cy - big * 0.62, {font: `${F.small} 10px`, color: o.topColor ?? tempColor(o.temp), align: 'center', valign: 'bottom'});
         },
         bar(cr, x, y, w, h, pct, o = {}) {
             if (h <= 6) {
@@ -624,7 +619,7 @@ const terminal = (() => {
             cr.closePath();
             cr.clip();
             cr.setLineWidth(1.3);
-            rgba(cr, level(pct), 0.55);
+            rgba(cr, o.color ?? level(pct), 0.55);
             for (let i = -r * 2; i < r * 2; i += 5) {
                 cr.moveTo(cx + i, cy - r);
                 cr.lineTo(cx + i + 2 * r, cy + r);
@@ -632,7 +627,7 @@ const terminal = (() => {
             cr.stroke();
             cr.restore();
             cr.setLineWidth(1.5);
-            rgba(cr, level(pct));
+            rgba(cr, o.color ?? level(pct));
             cr.moveTo(cx, cy);
             cr.arc(cx, cy, r - 3, a0, a1);
             cr.closePath();
@@ -648,18 +643,19 @@ const terminal = (() => {
             }
             // vạch nhiệt độ vòng ngoài
             const n = 40;
-            const lit = o.temp === null || o.temp === undefined ? 0 : Math.round(Math.min(1, o.temp / 100) * n);
+            const ring = 'inner' in o ? o.inner : o.temp;
+            const lit = ring === null || ring === undefined ? 0 : Math.round(Math.max(0, Math.min(1, ring / 100)) * n);
             for (let i = 0; i < n; i++) {
                 const a = -Math.PI / 2 + TAU * i / n;
                 cr.setLineWidth(i < lit ? 3 : 1);
-                rgba(cr, i < lit ? tempColor(o.temp) : c.main, i < lit ? 1 : 0.35);
+                rgba(cr, i < lit ? o.innerColor ?? tempColor(o.temp) : c.main, i < lit ? 1 : 0.35);
                 cr.moveTo(cx + (r + 6) * Math.cos(a), cy + (r + 6) * Math.sin(a));
                 cr.lineTo(cx + (r + (i < lit ? 13 : 10)) * Math.cos(a), cy + (r + (i < lit ? 13 : 10)) * Math.sin(a));
                 cr.stroke();
             }
             // số ở giữa trên nền đặc
             const size = o.small ? 22 : 30;
-            const str = `${String(Math.round(pct)).padStart(3, ' ')}%`;
+            const str = o.noPct ? o.text : `${(o.text ?? String(Math.round(pct))).padStart(3, ' ')}%`;
             const m = measure(cr, str, {font: `${F.bold} ${size}px`});
             cr.rectangle(cx - m.w / 2 - 6, cy - m.h / 2 - 2, m.w + 12, m.h + 4);
             rgba(cr, c.bg, 0.92);
@@ -668,9 +664,9 @@ const terminal = (() => {
             rgba(cr, c.main, 0.7);
             cr.rectangle(cx - m.w / 2 - 6, cy - m.h / 2 - 2, m.w + 12, m.h + 4);
             cr.stroke();
-            T(cr, str, cx, cy, {size, bold: true, align: 'center', valign: 'middle', color: level(pct), glow: 0.3});
+            T(cr, str, cx, cy, {size, bold: true, align: 'center', valign: 'middle', color: o.color ?? level(pct), glow: 0.3});
             T(cr, `${o.label}`, cx, cy + m.h / 2 + 6, {size: 9, align: 'center', alpha: 0.9});
-            T(cr, `TMP ${fmtTemp(o.temp)}`, cx, cy - m.h / 2 - 6, {size: 9, align: 'center', valign: 'bottom', color: tempColor(o.temp)});
+            T(cr, o.top ?? `TMP ${fmtTemp(o.temp)}`, cx, cy - m.h / 2 - 6, {size: 9, align: 'center', valign: 'bottom', color: o.topColor ?? tempColor(o.temp)});
         },
         bar(cr, x, y, w, h, pct, o = {}) {
             const cw = 7;
@@ -881,6 +877,10 @@ function makeOrbital(c, heatFn, opt = {}) {
             cr.lineTo(x + 26, y + 22.5);
             cr.stroke();
         },
+        // Tuỳ chọn chung của gauge (mọi theme dùng chung bố cục): temp, label, small; thêm cho RAM / ổ đĩa / mạng:
+        // color (màu vòng ngoài), text + noPct (chữ số lớn thay cho % làm tròn), top + topColor (chữ nhỏ phía trên,
+        // mặc định là nhiệt độ), topLabel (vẽ chữ trên kiểu nhãn), inner + innerColor (cung trong, mặc định nhiệt độ;
+        // null = chỉ vẽ vòng nền).
         gauge(cr, cx, cy, r, pct, o) {
             cr.newPath();
             const a0 = -Math.PI / 2;
@@ -890,7 +890,7 @@ function makeOrbital(c, heatFn, opt = {}) {
             cr.stroke();
             // giá trị
             const a1 = a0 + TAU * Math.max(0.002, Math.min(1, pct / 100));
-            const col = level(pct);
+            const col = o.color ?? level(pct);
             cr.setLineCap(Cairo.LineCap.ROUND);
             cr.setLineWidth(12);
             rgba(cr, col, 0.12);
@@ -910,17 +910,32 @@ function makeOrbital(c, heatFn, opt = {}) {
             rgba(cr, c.main, 0.2);
             cr.arc(cx, cy, ri, 0, TAU);
             cr.stroke();
-            if (o.temp !== null && o.temp !== undefined) {
+            const inner = 'inner' in o ? o.inner : o.temp;
+            if (inner !== null && inner !== undefined) {
                 cr.setLineWidth(3);
-                rgba(cr, tempColor(o.temp));
-                cr.arc(cx, cy, ri, a0, a0 + TAU * Math.min(1, o.temp / 100));
+                rgba(cr, o.innerColor ?? tempColor(o.temp));
+                cr.arc(cx, cy, ri, a0, a0 + TAU * Math.max(0, Math.min(1, inner / 100)));
                 cr.stroke();
             }
             const size = o.small ? Math.round(r * 0.66) : 46; // chữ theo cỡ vòng (r 70 -> 46)
-            const t = text(cr, `${Math.round(pct)}`, cx - 5, cy - 2, {font: `${F.thin} ${size}px`, color: c.main, align: 'center', valign: 'middle'});
-            text(cr, '%', t.x + t.w + 1, cy - size * 0.3, {font: `${F.light} ${size * 0.32}px`, color: c.dim});
+            const big = o.text ?? `${Math.round(pct)}`;
+            if (o.noPct) {
+                text(cr, big, cx, cy - 1, {font: `${F.thin} ${big.length > 3 ? size * 0.86 : size}px`, color: c.main, align: 'center', valign: 'middle'});
+            } else {
+                const t = text(cr, big, cx - 5, cy - 2, {font: `${F.thin} ${size}px`, color: c.main, align: 'center', valign: 'middle'});
+                text(cr, '%', t.x + t.w + 1, cy - size * 0.3, {font: `${F.light} ${size * 0.32}px`, color: c.dim});
+            }
             L(cr, o.label, cx, cy + size * 0.42, {align: 'center', size: 9});
-            text(cr, fmtTemp(o.temp), cx, cy - size * 0.5, {font: `${F.mono} 11px`, color: tempColor(o.temp), align: 'center', valign: 'bottom'});
+            const top = o.top ?? fmtTemp(o.temp), topColor = o.topColor ?? tempColor(o.temp);
+            if (o.topLabel)
+                L(cr, top, cx, cy - size * 0.5, {size: 9, color: topColor, align: 'center', valign: 'bottom'});
+            else
+                text(cr, top, cx, cy - size * 0.5, {font: `${F.mono} 11px`, color: topColor, align: 'center', valign: 'bottom'});
+        },
+        // mục nhỏ hai dòng: nhãn trên, số dưới (ô hẹp cạnh gauge ổ đĩa / mạng)
+        item(cr, x, y, label, value, color) {
+            L(cr, label, x, y, {size: 8.5});
+            text(cr, value, x, y + 11, {font: `${F.mono} 12.5px`, color: color ?? c.main});
         },
         bar(cr, x, y, w, h, pct, o = {}) {
             const yy = y + h / 2;
@@ -1312,35 +1327,66 @@ export const THEMES = {tactical, terminal, orbital, orbitalLight, card};
 
 // ================================================================ BỐ CỤC
 
+// Bố cục theo bản Windows (system-hud-windows/src/Hud.cs, 2026-11-18): mọi khối dùng gauge r 58 bên trái,
+// cột số liệu bên phải từ x + 150; STORAGE và NETWORK chia đôi bề rộng, mỗi nửa một gauge.
+
+// "202 / 223 GB", "0.41 / 1.82 TB": cùng đơn vị theo dung lượng tổng
+function fmtSizePair(used, total, sep = ' / ', tbDigits = 2) {
+    const tb = 2 ** 40, gb = 2 ** 30;
+    if (total >= tb)
+        return `${(used / tb).toFixed(tbDigits)}${sep}${(total / tb).toFixed(tbDigits)} TB`;
+    const d = total >= 100 * gb ? 0 : 1;
+    return `${(used / gb).toFixed(d)}${sep}${(total / gb).toFixed(d)} GB`;
+}
+
+// Mục hai dòng (nhãn trên, số dưới); theme không có `item` thì ghép từ label + value
+function item(cr, T, x, y, label, value, color) {
+    if (T.item)
+        T.item(cr, x, y, label, value, color);
+    else {
+        T.label(cr, x, y, label, {size: 8.5});
+        T.value(cr, x, y + 11, value, {size: 12.5, color});
+    }
+}
+
 function drawCpu(cr, T, s, x, y, w) {
     const c = s.cpu;
     T.section(cr, x, y, w, '01', 'CPU', `${c.model} · ${c.threads} threads`);
     const top = y + 32;
-    T.gauge(cr, x + 100, top + 100, 70, c.usage, {temp: c.temp, label: 'cpu load', tick: s.tick});
-    const rx = x + 214, rw = w - 214;
+    // nhiệt độ đã nằm trong vòng tròn nên không có dòng TEMP; cột phải gọn trong chiều cao vòng tròn
+    T.gauge(cr, x + 68, top + 68, 58, c.usage, {temp: c.temp, label: 'cpu load', tick: s.tick, small: true});
+    const rx = x + 150, rw = w - 150;
     let ry = top + 2;
-    T.stat(cr, rx, ry, rw, 'TEMP', fmtTemp(c.temp), T.tempColor(c.temp));
-    ry += 22;
     T.stat(cr, rx, ry, rw, 'CLOCK', c.freq ? `${c.freq.toFixed(2)} GHz` : '--');
     ry += 22;
-    T.stat(cr, rx, ry, rw, 'LOAD', c.load.map(v => v.toFixed(2)).join('  '));
-    ry += 28;
+    T.stat(cr, rx, ry, rw, 'PROC / THR', `${Math.round(c.procs)} / ${Math.round(c.threadCount)}`);
+    ry += 26;
     T.label(cr, rx, ry, `THREADS ×${c.perCore.length}`);
-    ry += 16;
-    T.cores(cr, rx, ry, rw, 40, c.perCore);
-    ry += 48;
-    T.graph(cr, rx, ry, rw, top + 206 - ry, [{data: c.history, color: T.c.main}], 100);
+    ry += 15;
+    T.cores(cr, rx, ry, rw, 38, c.perCore);
+    ry += 44;
+    T.graph(cr, rx, ry, rw, top + 134 - ry, [{data: c.history, color: T.c.main}], 100);
 }
 
 function drawMem(cr, T, s, x, y, w) {
     const m = s.mem;
     T.section(cr, x, y, w, '02', 'MEMORY', `${fmtGB(m.total)} GB total`);
     const top = y + 32;
-    usageRow(cr, T, x, top, w, `${fmtGB(m.used)} GB`, `${fmtGB(m.total)} GB`, m.percent);
-    T.bar(cr, x, top + 46, w, 13, m.percent);
-    T.stat(cr, x, top + 70, w / 2 - 14, 'CACHE', `${fmtGB(m.cached)} GB`);
-    T.stat(cr, x + w / 2 + 14, top + 70, w / 2 - 14, 'SWAP', `${fmtGB(m.swapUsed)} / ${fmtGB(m.swapTotal)} GB`,
+    // vòng = % RAM, chữ nhỏ phía trên = GB đã dùng, cung trong chỉ là vòng nền
+    T.gauge(cr, x + 68, top + 68, 58, m.percent, {label: 'ram used', tick: s.tick, small: true,
+        top: `${fmtGB(m.used)} GB`, topColor: T.level(m.percent), inner: null});
+    const rx = x + 150, rw = w - 150;
+    let ry = top + 2;
+    T.stat(cr, rx, ry, rw, 'USED', `${fmtGB(m.used)} / ${fmtGB(m.total)} GB`);
+    ry += 28;
+    T.stat(cr, rx, ry, rw, 'AVAILABLE', `${fmtGB(Math.max(0, m.total - m.used))} GB`);
+    ry += 28;
+    T.stat(cr, rx, ry, rw, 'CACHE', `${fmtGB(m.cached)} GB`);
+    ry += 32;
+    T.stat(cr, rx, ry, rw, 'SWAP', `${fmtGB(m.swapUsed)} / ${fmtGB(m.swapTotal)} GB`,
         m.swapPercent > 50 ? T.c.warn : undefined);
+    ry += 20;
+    T.bar(cr, rx, ry, rw, 10, m.swapPercent);
 }
 
 function drawGpu(cr, T, s, x, y, w) {
@@ -1351,59 +1397,107 @@ function drawGpu(cr, T, s, x, y, w) {
         T.label(cr, x, top + 10, 'NO TELEMETRY');
         return;
     }
-    // vòng to gần hết chiều cao khối (176 - 32 tiêu đề), cột số liệu vẫn bắt đầu ở x + 150
+    // nhiệt độ đã nằm trong vòng tròn nên không có dòng TEMP; 3 dòng còn lại giãn cho đủ chiều cao
     T.gauge(cr, x + 68, top + 68, 58, g.util, {temp: g.temp, label: 'core', tick: s.tick, small: true});
     const rx = x + 150, rw = w - 150;
     let ry = top + 2;
-    T.stat(cr, rx, ry, rw, 'TEMP', fmtTemp(g.temp), T.tempColor(g.temp));
-    ry += 21;
     T.stat(cr, rx, ry, rw, 'POWER', g.power === null ? '--' : `${g.power.toFixed(0)} / ${g.powerLimit?.toFixed(0) ?? '--'} W`);
-    ry += 21;
+    ry += 28;
     T.stat(cr, rx, ry, rw, 'FAN', g.fan === null ? '--' : `${Math.round(g.fan)}%`);
-    ry += 21;
+    ry += 28;
     T.stat(cr, rx, ry, rw, 'CLOCK', g.clock === null ? '--' : `${Math.round(g.clock)} MHz`);
-    ry += 26;
+    ry += 32;
     T.stat(cr, rx, ry, rw, 'VRAM', `${(g.memUsed / 2 ** 30).toFixed(1)} / ${(g.memTotal / 2 ** 30).toFixed(1)} GB`);
     ry += 20;
     T.bar(cr, rx, ry, rw, 10, g.memPercent);
 }
 
 function drawDisk(cr, T, s, x, y, w) {
-    const d = s.disk;
-    T.section(cr, x, y, w, '04', 'STORAGE', `${d.device} · ${d.mount}`);
+    // mỗi ổ vật lý một ô (tối đa 2, ổ chứa "/" trước)
+    const all = s.disks ?? [];
+    const sum = k => all.reduce((a, d) => a + d[k], 0);
+    const sub = all.length === 0 ? 'no disks'
+        : `${all.length} disk${all.length > 1 ? 's' : ''} · ${fmtSizePair(sum('used'), sum('total'))}`;
+    T.section(cr, x, y, w, '04', 'STORAGE', sub);
     const top = y + 32;
-    usageRow(cr, T, x, top, w, `${fmtGB(d.used)} GB`, `${fmtGB(d.total)} GB`, d.percent);
-    T.bar(cr, x, top + 46, w, 11, d.percent);
-    const cw = w / 3;
-    T.stat(cr, x, top + 68, cw - 12, 'READ', fmtRate(d.readRate), T.c.main);
-    T.stat(cr, x + cw, top + 68, cw - 12, 'WRITE', fmtRate(d.writeRate), T.c.accent);
-    T.stat(cr, x + 2 * cw, top + 68, cw, 'TEMP', fmtTemp(d.temp), T.tempColor(d.temp));
-    T.graph(cr, x, top + 88, w, 30, [{data: d.readHist, color: T.c.main}, {data: d.writeHist, color: T.c.accent}],
-        autoScale(d.readHist, d.writeHist), {mirror: true});
+    if (all.length === 0) {
+        T.label(cr, x, top + 10, 'NO TELEMETRY');
+        return;
+    }
+    const n = Math.min(2, all.length), gap = 16, cw = (w - gap * (n - 1)) / n;
+    for (let i = 0; i < n; i++)
+        diskCell(cr, T, s, all[i], x + i * (cw + gap), top, cw);
+}
+
+// Một ổ: gauge bên trái (số lớn + vòng ngoài = % thời gian ổ bận, cung trong + chữ nhỏ trên = % dung lượng),
+// bên phải READ / WRITE / USED, dưới cùng là mount · model (· nhiệt độ)
+function diskCell(cr, T, s, d, x, top, w) {
+    const r = 58, cx = x + r + 4, cy = top + 66;
+    const io = d.active ?? 0;
+    T.gauge(cr, cx, cy, r, io, {label: 'disk io', tick: s.tick, small: true,
+        text: d.active === null || d.active === undefined ? '--' : `${Math.round(io)}`,
+        top: `${Math.round(d.percent)}%`, topColor: T.level(d.percent),
+        inner: d.percent, innerColor: T.level(d.percent)});
+    const rx = cx + r + 12;
+    item(cr, T, rx, cy - 54, 'READ', fmtRate(d.readRate), T.c.main);
+    item(cr, T, rx, cy - 16, 'WRITE', fmtRate(d.writeRate), T.c.accent);
+    item(cr, T, rx, cy + 22, 'USED', fmtSizePair(d.used, d.total, '/', 1), T.level(d.percent));
+
+    // cắt bớt model cho vừa ô (ước lượng theo cỡ chữ nhãn 8.5 px, giãn 1.8)
+    const head = `${d.mount} · `, tail = d.temp !== null && d.temp !== undefined ? ` · ${fmtTemp(d.temp)}` : '';
+    const fits = str => measure(cr, str.toUpperCase(), {font: 'Noto Sans Semi-Condensed Medium 8.5px'}).w + str.length * 1.8 <= w;
+    let model = d.device;
+    while (model.length > 4 && !fits(head + model + tail))
+        model = `${model.slice(0, -2).replace(/[- ]+$/, '')}…`;
+    T.label(cr, x, top + 140, head + model + tail, {size: 8.5, alpha: 0.7});
+}
+
+// Phần vòng tròn của gauge mạng: tuyến tính theo tốc độ link. Dưới 5% link thì 5% đầu vòng tính theo tốc độ
+// so với đỉnh lịch sử (bằng đỉnh -> 5%), để mạng nhẹ vẫn thấy vòng nhúc nhích; hai đoạn nối liền ở mốc 5%.
+const NET_LOW_BAND = 0.05;
+function rateFraction(rate, max, peak) {
+    if (max <= 0 || rate <= 0)
+        return 0;
+    const lin = Math.min(1, rate / max);
+    if (lin >= NET_LOW_BAND)
+        return lin;
+    return Math.max(lin, NET_LOW_BAND * (peak > 0 ? Math.min(1, rate / peak) : 0));
 }
 
 function drawNet(cr, T, s, x, y, w) {
     const n = s.net;
-    T.section(cr, x, y, w, '05', 'NETWORK', `${n.iface || 'offline'}${n.ip ? ` · ${n.ip}` : ''}`);
+    const bps = n.linkSpeed * 8;
+    const link = n.linkSpeed <= 0 ? '' : bps >= 1e9 ? ` · ${(bps / 1e9).toFixed(1)} Gbps` : ` · ${Math.round(bps / 1e6)} Mbps`;
+    T.section(cr, x, y, w, '05', 'NETWORK', `${n.iface || 'offline'}${n.ip ? ` · ${n.ip}` : ''}${link}`);
     const top = y + 32;
-    T.label(cr, x, top, '▼ DOWNLINK');
-    T.value(cr, x, top + 13, fmtRate(n.rxRate), {size: 22, color: T.c.main});
-    T.label(cr, x + w, top, 'UPLINK ▲', {align: 'right'});
-    T.value(cr, x + w, top + 13, fmtRate(n.txRate), {size: 22, color: T.c.accent, align: 'right'});
-    const max = autoScale(n.rxHist, n.txHist);
-    T.graph(cr, x, top + 48, w, 74, [{data: n.rxHist, color: T.c.main}, {data: n.txHist, color: T.c.accent}], max, {mirror: true});
-    T.label(cr, x, top + 128, `RX ${fmtBytes(n.rxTotal)}`, {size: 10});
-    T.label(cr, x + w / 2, top + 128, `SCALE ${fmtRate(max)}`, {size: 10, align: 'center', alpha: 0.45});
-    T.label(cr, x + w, top + 128, `TX ${fmtBytes(n.txTotal)}`, {size: 10, align: 'right'});
+    const max = n.linkSpeed > 0 ? n.linkSpeed : 125e6; // không rõ tốc độ link: coi như 1 Gbps
+    const gap = 16, cw = (w - gap) / 2;
+    netCell(cr, T, s, x, top, '▼ down', n.rxRate, n.rxHist, n.rxTotal, max, T.c.main);
+    netCell(cr, T, s, x + cw + gap, top, 'up ▲', n.txRate, n.txHist, n.txTotal, max, T.c.accent);
+}
+
+// Một chiều mạng: gauge (số lớn = tốc độ, dưới là đơn vị, trên là nhãn), bên phải PEAK / AVG / TOTAL
+function netCell(cr, T, s, x, top, label, rate, hist, total, max, col) {
+    const r = 58, cx = x + r + 4, cy = top + 66;
+    const peak = Math.max(rate, ...hist);
+    const str = fmtRate(rate), sp = str.indexOf(' ');
+    T.gauge(cr, cx, cy, r, 100 * rateFraction(rate, max, peak), {tick: s.tick, small: true, color: col,
+        text: str.slice(0, sp), noPct: true, label: str.slice(sp + 1),
+        top: label, topColor: col, topLabel: true, inner: null});
+    const rx = cx + r + 12;
+    // đỉnh / trung bình trên cửa sổ lịch sử (HISTORY mẫu), tổng từ lúc card mạng bật
+    item(cr, T, rx, cy - 54, 'PEAK', fmtRate(peak), col);
+    item(cr, T, rx, cy - 16, 'AVG', fmtRate(hist.length ? hist.reduce((a, b) => a + b, 0) / hist.length : 0), T.c.main);
+    item(cr, T, rx, cy + 22, 'TOTAL', fmtBytes(total), T.c.main);
 }
 
 const SECTIONS = [
     {h: 74, fn: (cr, T, s, x, y, w, h) => T.header(cr, x, y, w, h, s)},
-    {h: 242, fn: drawCpu},
-    {h: 128, fn: drawMem},
-    {h: 176, fn: drawGpu},
-    {h: 152, fn: drawDisk},
-    {h: 178, fn: drawNet},
+    {h: 172, fn: drawCpu},
+    {h: 172, fn: drawMem},
+    {h: 172, fn: drawGpu},
+    {h: 186, fn: drawDisk},
+    {h: 172, fn: drawNet},
 ];
 const FOOTER_H = 22;
 const PAD = 20;
