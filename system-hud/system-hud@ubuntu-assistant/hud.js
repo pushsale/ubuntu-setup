@@ -87,6 +87,13 @@ function fmtBytes(b, digits = 1) {
     return `${i === 0 ? Math.round(v) : v.toFixed(v >= 100 ? 0 : digits)} ${u[i]}`;
 }
 const fmtRate = b => `${fmtBytes(b)}/s`;
+// Tốc độ mạng: dải KB/s làm tròn số nguyên (không cần phần lẻ), từ MB/s trở lên giữ 1 chữ số lẻ như fmtRate
+function fmtNetRate(b) {
+    if (b < 1024 || b >= 2 ** 20)
+        return fmtRate(b);
+    const kb = Math.round(b / 1024);
+    return kb < 1024 ? `${kb} KB/s` : `${(b / 2 ** 20).toFixed(1)} MB/s`; // 1023.5–1024 KB: làm tròn ra 1024 thì đổi sang MB
+}
 const fmtGB = b => `${(b / 2 ** 30).toFixed(1)}`;
 const fmtTemp = t => (t === null || t === undefined ? '--' : `${Math.round(t)}°C`);
 
@@ -1290,8 +1297,8 @@ const card = (() => {
             t(cr, value, cx - 56, y + 70, {size: 17, weight: 'Medium'});
             t(cr, total, cx - 56, y + 92, {size: 10.5, color: c.gray});
         };
-        cell(x + half / 2, c.blue, 'Download', fmtRate(n.rxRate), `Total ${fmtBytes(n.rxTotal)}`);
-        cell(x + half + half / 2, c.orange, 'Upload', fmtRate(n.txRate), `Total ${fmtBytes(n.txTotal)}`);
+        cell(x + half / 2, c.blue, 'Download', fmtNetRate(n.rxRate), `Total ${fmtBytes(n.rxTotal)}`);
+        cell(x + half + half / 2, c.orange, 'Upload', fmtNetRate(n.txRate), `Total ${fmtBytes(n.txTotal)}`);
         const max = autoScale(n.rxHist, n.txHist);
         areaChart(cr, x + P, y + 114, w - 2 * P, h - 130,
             [{data: n.rxHist, color: c.blue, fill: true}, {data: n.txHist, color: c.orange}], max);
@@ -1480,14 +1487,14 @@ function drawNet(cr, T, s, x, y, w) {
 function netCell(cr, T, s, x, top, label, rate, hist, total, max, col) {
     const r = 58, cx = x + r + 4, cy = top + 66;
     const peak = Math.max(rate, ...hist);
-    const str = fmtRate(rate), sp = str.indexOf(' ');
+    const str = fmtNetRate(rate), sp = str.indexOf(' ');
     T.gauge(cr, cx, cy, r, 100 * rateFraction(rate, max, peak), {tick: s.tick, small: true, color: col,
         text: str.slice(0, sp), noPct: true, label: str.slice(sp + 1),
         top: label, topColor: col, topLabel: true, inner: null});
     const rx = cx + r + 12;
     // đỉnh / trung bình trên cửa sổ lịch sử (HISTORY mẫu), tổng từ lúc card mạng bật
-    item(cr, T, rx, cy - 54, 'PEAK', fmtRate(peak), col);
-    item(cr, T, rx, cy - 16, 'AVG', fmtRate(hist.length ? hist.reduce((a, b) => a + b, 0) / hist.length : 0), T.c.main);
+    item(cr, T, rx, cy - 54, 'PEAK', fmtNetRate(peak), col);
+    item(cr, T, rx, cy - 16, 'AVG', fmtNetRate(hist.length ? hist.reduce((a, b) => a + b, 0) / hist.length : 0), T.c.main);
     item(cr, T, rx, cy + 22, 'TOTAL', fmtBytes(total), T.c.main);
 }
 
