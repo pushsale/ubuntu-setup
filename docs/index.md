@@ -8,7 +8,7 @@ Bộ công cụ tự viết để tuỳ biến và vận hành máy Ubuntu 26.04
 |---|---|---|---|
 | [remote-shield/](remote-shield/overview.md) | Khi có người remote RDP, màn hình thật trông như đang khóa; người remote vẫn thấy và điều khiển desktop; bấm tại máy để lấy lại máy | đang chạy | 2026-11-13 |
 | [system-hud/](system-hud/overview.md) | Bảng theo dõi CPU/RAM/GPU/ổ đĩa/mạng/nhiệt độ vẽ trên desktop, dưới mọi cửa sổ (tên cũ: Sci-Fi HUD); cửa sổ cấu hình mở từ biểu tượng trên thanh trên cùng | đang chạy | 2026-11-16 |
-| [system-hud-windows/](system-hud-windows/overview.md) | Bản Windows của System HUD (C# .NET Framework 4.8, GDI+): cùng giao diện Orbital, cửa sổ trong suốt dưới mọi cửa sổ, tự chạy khi đăng nhập | đang chạy | 2026-11-13 |
+| [system-hud-windows/](system-hud-windows/overview.md) | Bản Windows của System HUD (C# .NET Framework 4.8, GDI+): theme Orbital, font Noto nhúng sẵn, mỗi khối một vòng tròn (ổ đĩa và mạng hai vòng), cửa sổ trong suốt dưới mọi cửa sổ, tự chạy khi đăng nhập | đang chạy | 2026-11-18 |
 | [quick-shot/](quick-shot/overview.md) | Phím Print: chọn vùng bằng giao diện GNOME rồi vẽ chữ, mũi tên, khung; Copy hoặc Lưu PNG (thay Flameshot) | đang chạy | 2026-11-17 |
 | [initial-setup/](initial-setup/overview.md) | Cài máy Ubuntu mới: script cài một lượt các thứ đơn giản (nhập mật khẩu một lần) + danh sách mục phức tạp để Claude xử lý; người dùng chỉ dán lệnh cài Claude | thiết kế | 2026-11-13 |
 
@@ -28,7 +28,7 @@ Mỗi thư mục có `overview.md` (cho người không đọc code) và `system
 
 `initial-setup` cài `remote-shield` bằng `install.sh` của feature đó; không feature nào phụ thuộc ngược lại. `remote-shield` và `system-hud` độc lập, đều là GNOME Shell extension của cùng user và dùng chung kiểu "file khởi động mỏng" (`extension.js` nạp `core.js?v=<thời gian>`) để cập nhật code không cần đăng xuất. Không gọi lẫn nhau. `quick-shot` là ứng dụng GTK độc lập (không phải extension), không phụ thuộc feature nào.
 
-`system-hud-windows` là bản port của `system-hud` sang Windows: không dùng chung code (JavaScript/Cairo so với C#/GDI+) nhưng giữ cùng toạ độ thiết kế, màu, khoá cấu hình. Đổi giao diện hoặc mặc định cấu hình ở một bản thì cân nhắc sửa bản kia trong cùng commit — bảng ánh xạ file và các khác biệt cố ý nằm trong [system-hud-windows/system.md](system-hud-windows/system.md) (mục "Đồng bộ với bản Ubuntu").
+`system-hud-windows` là bản port của `system-hud` sang Windows: không dùng chung code (JavaScript/Cairo so với C#/GDI+) nhưng giữ cùng theme (màu, font, thang màu nhiệt) và khoá cấu hình; bố cục từng khối của bản Windows đã khác (vòng tròn cho mọi khối). Đổi giao diện hoặc mặc định cấu hình ở một bản thì cân nhắc sửa bản kia trong cùng commit — bảng ánh xạ file và các khác biệt cố ý nằm trong [system-hud-windows/system.md](system-hud-windows/system.md) (mục "Đồng bộ với bản Ubuntu").
 
 ## Thứ tự đọc cho session mới
 

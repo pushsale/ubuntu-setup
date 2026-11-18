@@ -37,6 +37,7 @@ namespace SystemHud
         {
             _cfgPath = HudConfig.PathFor();
             _cfg = HudConfig.Load(_cfgPath);
+            Fonts.TextScale = _cfg.TextScale;
             _anim = new Animator(_cfg.AnimMs);
 
             _ui = new Control();
@@ -185,6 +186,7 @@ namespace SystemHud
         void ReloadConfig()
         {
             _cfg = HudConfig.Load(_cfgPath);
+            Fonts.TextScale = _cfg.TextScale;
             _anim.Duration = _cfg.AnimMs;
             if (_frameTimer.Enabled)
                 _frameTimer.Interval = Math.Max(1, 1000 / Math.Max(1, _cfg.Fps));

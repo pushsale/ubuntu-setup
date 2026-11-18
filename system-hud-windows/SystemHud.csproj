@@ -22,4 +22,9 @@
     <Reference Include="System.Web.Extensions" />
   </ItemGroup>
 
+  <!-- Font Noto như bản Ubuntu (SIL OFL, xem fonts/OFL.txt), đã cắt còn Latin + tiếng Việt; nhúng vào exe -->
+  <ItemGroup>
+    <EmbeddedResource Include="fonts\*.ttf" LogicalName="fonts.%(Filename)%(Extension)" />
+  </ItemGroup>
+
 </Project>

@@ -1,6 +1,6 @@
 # System HUD cho Windows
 
-Bảng theo dõi CPU, RAM, GPU, ổ đĩa, mạng vẽ thẳng lên desktop Windows, nằm dưới mọi cửa sổ, giao diện Orbital giống bản [Ubuntu](../system-hud/README.md). Một file `.exe`, không cần cài runtime, không cần quyền admin.
+Bảng theo dõi CPU, RAM, GPU, ổ đĩa, mạng vẽ thẳng lên desktop Windows, nằm dưới mọi cửa sổ, theme Orbital như bản [Ubuntu](../system-hud/README.md). Mỗi khối có một vòng tròn: % tải CPU, % RAM, % tải GPU, % thời gian bận của từng ổ đĩa (tối đa 2 ổ), tốc độ tải xuống / tải lên so với băng thông của card mạng. Một file `.exe`, không cần cài runtime, không cần quyền admin, font Noto nhúng sẵn.
 
 > **In English.** A transparent system monitor (CPU, RAM, GPU, disk, network) drawn on the Windows desktop, below all windows. Port of the Ubuntu GNOME extension in `../system-hud`.
 
@@ -42,7 +42,8 @@ Chuột phải icon HUD ở khay hệ thống để: đổi giao diện tối/s�
   "intervalMs": 3000,
   "animMs": 3000,
   "fps": 10,
-  "autostart": true
+  "autostart": true,
+  "textScale": 1.1
 }
 ```
 
@@ -57,10 +58,11 @@ Chuột phải icon HUD ở khay hệ thống để: đổi giao diện tối/s�
 | `animMs` | Thời gian hiệu ứng chuyển số (ms); bằng `intervalMs` thì chuyển liên tục, `0` thì tắt |
 | `fps` | Số khung/giây khi chạy hiệu ứng; ít hơn thì nhẹ CPU hơn |
 | `autostart` | `true` tự chạy khi đăng nhập Windows |
+| `textScale` | Hệ số cỡ chữ nhỏ (nhãn, số liệu), từ `0.8` tới `1.4`; `1` là đúng cỡ thiết kế gốc |
 
 ## Gỡ
 
 1. Chuột phải icon HUD ở khay → bỏ chọn **Khởi động cùng Windows** → **Thoát**.
 2. Xoá `SystemHud.exe` và `config.json`.
 
-Tài liệu kỹ thuật: [docs/system-hud-windows/](../docs/system-hud-windows/overview.md). Giấy phép: [MIT](../LICENSE).
+Tài liệu kỹ thuật: [docs/system-hud-windows/](../docs/system-hud-windows/overview.md). Giấy phép: [MIT](../LICENSE). Font Noto trong `fonts/` thuộc The Noto Project Authors, giấy phép [SIL Open Font License 1.1](fonts/OFL.txt).

@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Text;
+using System.Runtime.InteropServices;
 
 namespace SystemHud
 {
@@ -20,11 +21,11 @@ namespace SystemHud
 
     internal static class Fonts
     {
-        // Ưu tiên font Noto như bản Ubuntu nếu máy có, nếu không dùng font sẵn có của Windows
+        // Font Noto giống bản Ubuntu, nhúng sẵn trong exe (fonts\*.ttf); font Windows chỉ là dự phòng
         static readonly Dictionary<FontRole, string[]> Candidates = new Dictionary<FontRole, string[]>
         {
             [FontRole.Thin] = new[] { "Noto Sans Light", "Segoe UI Light" },
-            [FontRole.Light] = new[] { "Segoe UI" },
+            [FontRole.Light] = new[] { "Noto Sans", "Segoe UI" },
             [FontRole.Title] = new[] { "Noto Sans Medium", "Segoe UI Semibold" },
             [FontRole.Label] = new[] { "Noto Sans SemiCondensed Medium", "Bahnschrift SemiCondensed", "Segoe UI" },
             [FontRole.Mono] = new[] { "Noto Sans Mono Condensed Medium", "Bahnschrift SemiCondensed", "Consolas" },
@@ -33,31 +34,77 @@ namespace SystemHud
         static readonly Dictionary<FontRole, FontFamily> Families = new Dictionary<FontRole, FontFamily>();
         static readonly Dictionary<(FontRole, float), Font> Cache = new Dictionary<(FontRole, float), Font>();
 
+        static PrivateFontCollection _embedded;
+
+        // Nạp font nhúng một lần. AddMemoryFont cần vùng nhớ sống suốt đời tiến trình -> cấp phát và không giải phóng.
+        static PrivateFontCollection Embedded()
+        {
+            if (_embedded != null)
+                return _embedded;
+            _embedded = new PrivateFontCollection();
+            var asm = typeof(Fonts).Assembly;
+            foreach (var res in asm.GetManifestResourceNames())
+            {
+                if (!res.StartsWith("fonts.", StringComparison.Ordinal) || !res.EndsWith(".ttf", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                try
+                {
+                    using (var s = asm.GetManifestResourceStream(res))
+                    {
+                        var data = new byte[s.Length];
+                        s.Read(data, 0, data.Length);
+                        IntPtr mem = Marshal.AllocCoTaskMem(data.Length);
+                        Marshal.Copy(data, 0, mem, data.Length);
+                        _embedded.AddMemoryFont(mem, data.Length);
+                    }
+                }
+                catch
+                {
+                    // font hỏng: dùng font dự phòng
+                }
+            }
+            return _embedded;
+        }
+
+        static FontFamily Find(string name)
+        {
+            foreach (var fam in Embedded().Families)
+                if (string.Equals(fam.Name, name, StringComparison.OrdinalIgnoreCase))
+                    return fam;
+            try
+            {
+                var f = new FontFamily(name);
+                return f.IsStyleAvailable(FontStyle.Regular) ? f : null;
+            }
+            catch (ArgumentException)
+            {
+                return null;
+            }
+        }
+
         static FontFamily Family(FontRole role)
         {
             if (Families.TryGetValue(role, out var f))
                 return f;
             foreach (var name in Candidates[role])
             {
-                try
-                {
-                    f = new FontFamily(name);
-                    if (f.IsStyleAvailable(FontStyle.Regular))
-                        break;
-                }
-                catch (ArgumentException)
-                {
-                    f = null;
-                }
+                f = Find(name);
+                if (f != null)
+                    break;
             }
             f = f ?? FontFamily.GenericSansSerif;
             Families[role] = f;
             return f;
         }
 
+        // Hệ số cỡ chữ nhỏ (< 18 px: nhãn, số liệu, tiêu đề). Chữ trên ảnh chụp bản Ubuntu (Pango) to hơn GDI+
+        // cùng cỡ px khoảng 10-15% và chữ nhỏ GDI+ dễ nhoè, nên mặc định 1.1. Chữ lớn (tên máy, giờ, số % trong
+        // vòng tròn) giữ nguyên để không chạm nhau.
+        public static double TextScale = 1.1;
+
         public static Font Get(FontRole role, double px)
         {
-            float size = (float)Math.Round(px, 2);
+            float size = (float)Math.Round(px < 18 ? px * TextScale : px, 2);
             if (!Cache.TryGetValue((role, size), out var font))
             {
                 font = new Font(Family(role), size, FontStyle.Regular, GraphicsUnit.Pixel);
@@ -84,7 +131,7 @@ namespace SystemHud
         {
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.PixelOffsetMode = PixelOffsetMode.Half; // tâm pixel ở .5 như Cairo
-            g.TextRenderingHint = TextRenderingHint.AntiAlias;
+            g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
             // trộn màu tuyến tính như Cairo; HighQuality (hiệu chỉnh gamma) chậm hơn nhiều lần
             g.CompositingQuality = CompositingQuality.AssumeLinear;
             g.InterpolationMode = InterpolationMode.NearestNeighbor;
@@ -156,19 +203,22 @@ namespace SystemHud
             return new TextBox { X = dx, Y = dy, W = m.W, H = m.H };
         }
 
-        static void DrawRaw(Graphics g, string str, Font f, Color col, double spacing, double dx, double dy)
+        // snapK > 0: làm tròn vị trí từng ký tự về lưới pixel thiết bị (tỉ lệ snapK) để nét đã hinting
+        // không bị kéo lệch nửa pixel thành nhoè (quan trọng với nhãn giãn chữ vẽ từng ký tự)
+        static void DrawRaw(Graphics g, string str, Font f, Color col, double spacing, double dx, double dy, double snapK = 0)
         {
+            float Snap(double v) => (float)(snapK > 0 ? Math.Round(v * snapK) / snapK : v);
             using (var br = new SolidBrush(col))
             {
                 if (spacing == 0)
-                    g.DrawString(str, f, br, (float)dx, (float)dy, Typo);
+                    g.DrawString(str, f, br, Snap(dx), Snap(dy), Typo);
                 else
                 {
                     double cx = dx;
                     foreach (var ch in str)
                     {
                         if (ch != ' ')
-                            g.DrawString(ch.ToString(), f, br, (float)cx, (float)dy, Typo);
+                            g.DrawString(ch.ToString(), f, br, Snap(cx), Snap(dy), Typo);
                         cx += CharWidth(g, f, ch) + spacing;
                     }
                 }
@@ -199,10 +249,13 @@ namespace SystemHud
                 using (var tg = Graphics.FromImage(bmp))
                 {
                     Setup(tg);
+                    // Chữ không dùng PixelOffsetMode.Half (dành cho hình học kiểu Cairo): lệch 0.5 px làm nét chữ đã
+                    // hinting dàn sang 2 pixel -> mờ
+                    tg.PixelOffsetMode = PixelOffsetMode.None;
                     tg.Clear(Color.Transparent);
                     tg.TranslateTransform(TextPad, TextPad);
                     tg.ScaleTransform((float)k, (float)k);
-                    DrawRaw(tg, str, f, col, spacing, 0, 0);
+                    DrawRaw(tg, str, f, col, spacing, 0, 0, k);
                 }
                 TextCache[key] = bmp;
             }

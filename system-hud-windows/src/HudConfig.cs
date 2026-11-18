@@ -19,6 +19,7 @@ namespace SystemHud
         public int AnimMs = 3000;              // thời gian hiệu ứng chuyển số liệu (0 = tắt); bằng IntervalMs = chuyển liên tục
         public int Fps = 10;                   // khung hình/giây trong lúc chạy hiệu ứng (càng cao càng tốn CPU)
         public bool Autostart = true;          // tự chạy khi đăng nhập Windows (HKCU\...\Run\SystemHud)
+        public double TextScale = 1.1;         // hệ số cỡ chữ nhỏ (nhãn, số liệu); 1 = đúng cỡ thiết kế gốc
 
         public static string PathFor()
         {
@@ -68,8 +69,9 @@ namespace SystemHud
                 if (d.TryGetValue("animMs", out v)) cfg.AnimMs = (int)Clamp(Num(v, cfg.AnimMs), 0, 10000);
                 if (d.TryGetValue("fps", out v)) cfg.Fps = (int)Clamp(Num(v, cfg.Fps), 1, 120);
                 if (d.TryGetValue("autostart", out v) && v is bool au) cfg.Autostart = au;
+                if (d.TryGetValue("textScale", out v)) cfg.TextScale = Clamp(Num(v, cfg.TextScale), 0.8, 1.4);
                 // file của bản cũ thiếu khoá mới -> ghi bổ sung để người dùng thấy và sửa được
-                if (!d.ContainsKey("autostart"))
+                if (!d.ContainsKey("autostart") || !d.ContainsKey("textScale"))
                     cfg.Save(path);
             }
             catch
@@ -93,7 +95,8 @@ namespace SystemHud
             sb.Append($"  \"intervalMs\": {IntervalMs},\n");
             sb.Append($"  \"animMs\": {AnimMs},\n");
             sb.Append($"  \"fps\": {Fps},\n");
-            sb.Append($"  \"autostart\": {(Autostart ? "true" : "false")}\n");
+            sb.Append($"  \"autostart\": {(Autostart ? "true" : "false")},\n");
+            sb.Append($"  \"textScale\": {TextScale.ToString(inv)}\n");
             sb.Append("}\n");
             File.WriteAllText(path, sb.ToString(), new UTF8Encoding(false));
         }

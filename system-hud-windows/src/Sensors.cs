@@ -34,6 +34,9 @@ namespace SystemHud
 
         string _sysDrive = "C:";
         int _sysDiskIndex = -1;
+        Dictionary<int, string> _diskModels = new Dictionary<int, string>();
+        readonly Dictionary<string, (double total, double used)> _volUsage = new Dictionary<string, (double, double)>();
+        Dictionary<int, double> _diskTemps = new Dictionary<int, double>();
 
         NetworkInterface _nic;
         uint _nicIndex = uint.MaxValue;
@@ -64,7 +67,6 @@ namespace SystemHud
                 s.Cpu.Threads = Environment.ProcessorCount;
 
             _sysDrive = (Path.GetPathRoot(Environment.SystemDirectory) ?? @"C:\").TrimEnd('\\');
-            s.Disk.Mount = _sysDrive;
         }
 
         public HudState Snapshot()
@@ -79,8 +81,11 @@ namespace SystemHud
             _inited = true;
             _pdh = new Pdh();
             _pdh.Add("perf", @"\Processor Information(_Total)\% Processor Performance");
-            _pdh.Add("dread", $@"\LogicalDisk({_sysDrive})\Disk Read Bytes/sec");
-            _pdh.Add("dwrite", $@"\LogicalDisk({_sysDrive})\Disk Write Bytes/sec");
+            // Theo ổ vật lý; instance dạng "0 C:", "1 D: F:".
+            // % Disk Time có thể vượt 100 (cộng dồn hàng đợi) -> dùng 100 - % Idle Time như Task Manager
+            _pdh.Add("dread", @"\PhysicalDisk(*)\Disk Read Bytes/sec");
+            _pdh.Add("dwrite", @"\PhysicalDisk(*)\Disk Write Bytes/sec");
+            _pdh.Add("didle", @"\PhysicalDisk(*)\% Idle Time");
             _pdh.Add("standbyCore", @"\Memory\Standby Cache Core Bytes");
             _pdh.Add("standbyNormal", @"\Memory\Standby Cache Normal Priority Bytes");
             _pdh.Add("standbyReserve", @"\Memory\Standby Cache Reserve Bytes");
@@ -117,7 +122,9 @@ namespace SystemHud
             var hw = ReadHwTemps();
             double? acpi = hw.cpu == null ? ReadAcpiTemp() : null;
             bool slowTick = _s.Tick % 10 == 0;
-            double? storageTemp = hw.disk == null && slowTick ? ReadStorageTemp() : null;
+            if (slowTick)
+                _diskTemps = ReadStorageTemps() ?? _diskTemps;
+            var disks = ReadDisks(slowTick, hw.disk);
             var page = slowTick ? ReadPageFile() : (null, null);
 
             lock (_gate)
@@ -132,11 +139,7 @@ namespace SystemHud
                     s.Mem.SwapUsed = page.Item2.Value;
                     s.Mem.SwapPercent = s.Mem.SwapTotal > 0 ? 100 * s.Mem.SwapUsed / s.Mem.SwapTotal : 0;
                 }
-                ReadDisk(slowTick);
-                if (hw.disk != null)
-                    s.Disk.Temp = hw.disk;
-                else if (slowTick && _storageTempOk)
-                    s.Disk.Temp = storageTemp;
+                s.Disks = disks;
                 ReadNet(dt);
                 if (_gpuFallback)
                     ReadGpuFallback(hw.gpu);
@@ -256,7 +259,14 @@ namespace SystemHud
 
         void FindSystemDisk()
         {
-            string model = "";
+            var models = new Dictionary<int, string>();
+            foreach (var d in Wmi(@"root\cimv2", "SELECT Index, Model FROM Win32_DiskDrive") ?? new List<ManagementBaseObject>())
+            {
+                string m = (d["Model"] as string ?? "").Trim();
+                if (m.Length > 0)
+                    models[Convert.ToInt32(d["Index"] ?? -1)] = m;
+            }
+            _diskModels = models;
             try
             {
                 using (var parts = new ManagementObjectSearcher(
@@ -269,7 +279,6 @@ namespace SystemHud
                         {
                             foreach (ManagementObject d in drives.Get())
                             {
-                                model = (d["Model"] as string ?? "").Trim();
                                 _sysDiskIndex = Convert.ToInt32(d["Index"] ?? -1);
                                 break;
                             }
@@ -280,40 +289,79 @@ namespace SystemHud
             }
             catch
             {
-                // WMI không sẵn sàng: dùng tên mặc định
+                // WMI không sẵn sàng: nhận ổ hệ thống theo ký tự ổ
             }
-            if (model.Length > 26)
-                model = model.Substring(0, 26).TrimEnd();
-            lock (_gate)
-                _s.Disk.Device = model.Length > 0 ? model : "disk";
         }
 
-        void ReadDisk(bool refreshUsage)
+        // Mỗi ổ vật lý có ký tự ổ thành một DiskState. Instance PhysicalDisk có dạng
+        // "0 C:", "1 D: F:" (số ổ + các ký tự ổ trên đó); ổ không có ký tự (ổ ảo, chưa phân vùng) bị bỏ qua.
+        // Ổ hệ thống đứng đầu, còn lại theo số ổ.
+        DiskState[] ReadDisks(bool refreshUsage, double? sysTempHw)
         {
-            var d = _s.Disk;
-            if (refreshUsage)
+            var idle = ToDict(_pdh.GetArray("didle"));
+            var rd = ToDict(_pdh.GetArray("dread"));
+            var wr = ToDict(_pdh.GetArray("dwrite"));
+            var list = new List<(int order, DiskState d)>();
+            foreach (var name in idle.Keys.Union(rd.Keys))
             {
-                try
+                var parts = name.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length < 2 || !int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int idx))
+                    continue;
+                var letters = parts.Skip(1).ToArray();
+                bool sys = _sysDiskIndex >= 0 ? idx == _sysDiskIndex : letters.Contains(_sysDrive, StringComparer.OrdinalIgnoreCase);
+                var d = new DiskState
                 {
-                    var di = new DriveInfo(_sysDrive);
-                    d.Total = di.TotalSize;
-                    d.Used = di.TotalSize - di.TotalFreeSpace;
-                    d.Percent = d.Total > 0 ? 100 * d.Used / d.Total : 0;
-                }
-                catch
+                    Mount = string.Join(" ", letters),
+                    Device = _diskModels.TryGetValue(idx, out var model) ? model : $"disk {idx}",
+                };
+                foreach (var l in letters)
                 {
-                    // giữ số cũ
+                    if (refreshUsage || !_volUsage.ContainsKey(l))
+                    {
+                        try
+                        {
+                            var di = new DriveInfo(l);
+                            if (di.IsReady)
+                                _volUsage[l] = (di.TotalSize, di.TotalSize - di.TotalFreeSpace);
+                        }
+                        catch
+                        {
+                            // giữ số cũ
+                        }
+                    }
+                    if (_volUsage.TryGetValue(l, out var u))
+                    {
+                        d.Total += u.total;
+                        d.Used += u.used;
+                    }
                 }
+                d.Percent = d.Total > 0 ? 100 * d.Used / d.Total : 0;
+                if (idle.TryGetValue(name, out var iv))
+                    d.Active = Math.Max(0, Math.Min(100, 100 - iv));
+                d.ReadRate = rd.TryGetValue(name, out var r) ? Math.Max(0, r) : 0;
+                d.WriteRate = wr.TryGetValue(name, out var w) ? Math.Max(0, w) : 0;
+                // LibreHardwareMonitor chỉ cho biết một nhiệt độ ổ: gán cho ổ hệ thống
+                if (sys && sysTempHw != null)
+                    d.Temp = sysTempHw;
+                else if (_diskTemps.TryGetValue(idx, out var t))
+                    d.Temp = t;
+                list.Add((sys ? -1 : idx, d));
             }
-            d.ReadRate = Math.Max(0, _pdh.Get("dread") ?? 0);
-            d.WriteRate = Math.Max(0, _pdh.Get("dwrite") ?? 0);
-            Push(ref d.ReadHist, d.ReadRate);
-            Push(ref d.WriteHist, d.WriteRate);
+            return list.OrderBy(x => x.order).Select(x => x.d).ToArray();
         }
 
-        double? ReadStorageTemp()
+        static Dictionary<string, double> ToDict(List<KeyValuePair<string, double>> items)
         {
-            if (!_storageTempOk || _sysDiskIndex < 0)
+            var dict = new Dictionary<string, double>();
+            foreach (var kv in items)
+                dict[kv.Key] = kv.Value;
+            return dict;
+        }
+
+        // Nhiệt độ theo số ổ; cần quyền admin, không được thì tắt hẳn
+        Dictionary<int, double> ReadStorageTemps()
+        {
+            if (!_storageTempOk)
                 return null;
             var rows = Wmi(@"root\Microsoft\Windows\Storage", "SELECT DeviceId, Temperature FROM MSFT_StorageReliabilityCounter");
             if (rows == null)
@@ -321,14 +369,14 @@ namespace SystemHud
                 _storageTempOk = false; // thường do không chạy quyền admin
                 return null;
             }
+            var temps = new Dictionary<int, double>();
             foreach (var r in rows)
             {
-                if (Convert.ToString(r["DeviceId"]) != _sysDiskIndex.ToString(CultureInfo.InvariantCulture))
-                    continue;
                 double t = Convert.ToDouble(r["Temperature"] ?? 0);
-                return t > 0 ? t : (double?)null;
+                if (t > 0 && int.TryParse(Convert.ToString(r["DeviceId"]), NumberStyles.Integer, CultureInfo.InvariantCulture, out int id))
+                    temps[id] = t;
             }
-            return null;
+            return temps;
         }
 
         // ---------------------------------------------------------------- Network
@@ -358,6 +406,9 @@ namespace SystemHud
                 }
                 catch { }
                 n.Iface = _nic?.Name ?? "";
+                long bps = 0;
+                try { bps = _nic?.Speed ?? 0; } catch { }
+                n.LinkSpeed = bps > 0 ? bps / 8.0 : 0;
                 n.Ip = _nic?.GetIPProperties().UnicastAddresses
                     .FirstOrDefault(a => a.Address.AddressFamily == AddressFamily.InterNetwork)?.Address.ToString() ?? "";
             }

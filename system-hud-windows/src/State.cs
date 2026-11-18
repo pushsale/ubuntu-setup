@@ -38,18 +38,20 @@ namespace SystemHud
         public double[] History = new double[0];
     }
 
+    // Một ổ vật lý (có ít nhất một ký tự ổ); dung lượng là tổng các phân vùng trên ổ đó
     public sealed class DiskState
     {
-        public string Mount = "C:", Device = "";
+        public string Mount = "", Device = ""; // Mount: "C:" hoặc "D: F:"
         public double Total, Used, Percent, ReadRate, WriteRate;
         public double? Temp;
-        public double[] ReadHist = new double[0], WriteHist = new double[0];
+        public double? Active; // % thời gian ổ bận (như cột Disk của Task Manager)
     }
 
     public sealed class NetState
     {
         public string Iface = "", Ip = "";
         public double RxRate, TxRate, RxTotal, TxTotal;
+        public double LinkSpeed; // tốc độ link của card (byte/s), 0 = không rõ
         public double[] RxHist = new double[0], TxHist = new double[0];
     }
 
@@ -61,7 +63,7 @@ namespace SystemHud
         public CpuState Cpu = new CpuState();
         public MemState Mem = new MemState();
         public GpuState Gpu = new GpuState();
-        public DiskState Disk = new DiskState();
+        public DiskState[] Disks = new DiskState[0]; // ổ hệ thống đứng đầu
         public NetState Net = new NetState();
 
         public HudState Clone() => (HudState)Interp.Value(typeof(HudState), "", null, this, 1);
@@ -91,6 +93,24 @@ namespace SystemHud
                 var r = new double[bb.Length];
                 for (int i = 0; i < r.Length; i++)
                     r[i] = aa[i] + (bb[i] - aa[i]) * t;
+                return r;
+            }
+            if (type.IsArray)
+            {
+                // mảng đối tượng (vd danh sách ổ đĩa): nội suy từng phần tử khi cùng số lượng và cùng ổ
+                var et = type.GetElementType();
+                var bb = (Array)b;
+                var aa = a as Array;
+                if (aa != null && aa.Length != bb.Length)
+                    aa = null;
+                var r = Array.CreateInstance(et, bb.Length);
+                for (int i = 0; i < r.Length; i++)
+                {
+                    object ai = aa?.GetValue(i), bi = bb.GetValue(i);
+                    if (ai is DiskState da && bi is DiskState db && da.Mount != db.Mount)
+                        ai = null;
+                    r.SetValue(Value(et, name, ai, bi, t), i);
+                }
                 return r;
             }
             if (type.IsClass && type != typeof(string))

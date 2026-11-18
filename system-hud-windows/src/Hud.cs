@@ -80,6 +80,16 @@ namespace SystemHud
         }
 
         public static string Rate(double b) => Bytes(b) + "/s";
+
+        // "202 / 223 GB", "0.41 / 1.82 TB": cùng đơn vị theo dung lượng tổng
+        public static string SizePair(double used, double total, string sep = " / ", int tbDigits = 2)
+        {
+            double tb = Math.Pow(2, 40), gb = Math.Pow(2, 30);
+            if (total >= tb)
+                return $"{F(used / tb, tbDigits)}{sep}{F(total / tb, tbDigits)} TB";
+            int d = total >= 100 * gb ? 0 : 1;
+            return $"{F(used / gb, d)}{sep}{F(total / gb, d)} GB";
+        }
         public static string GB(double b) => (b / Math.Pow(2, 30)).ToString("F1", Inv);
         public static string Temp(double? t) => t == null ? "--" : $"{Round(t.Value)}°C";
         public static string F(double v, int d) => v.ToString("F" + d, Inv);
@@ -212,6 +222,74 @@ namespace SystemHud
             Gfx.Text(g, "%", t.X + t.W + 1, cy - size * 0.3, F(FontRole.Light, size * 0.32), C.Dim);
             L(g, label, cx, cy + size * 0.42, align: Align.Center, size: 9);
             Gfx.Text(g, Fmt.Temp(temp), cx, cy - size * 0.5, F(FontRole.Mono, 11), TempColor(temp), align: Align.Center, valign: VAlign.Bottom);
+        }
+
+        // Gauge ổ đĩa (bản Windows thêm), cùng kiểu gauge CPU:
+        // vòng ngoài + số lớn = % thời gian ổ bận (disk IO, như cột Disk của Task Manager);
+        // vòng trong mảnh + chữ nhỏ phía trên số lớn = % dung lượng đã dùng (vị trí nhiệt độ ở gauge CPU).
+        public void DiskGauge(Graphics g, double cx, double cy, double r, double? active, double usedPct)
+        {
+            double a0 = -Math.PI / 2;
+            double io = active ?? 0;
+            Gfx.StrokeCircle(g, cx, cy, r, 1.5, C.Main, 0.28);
+            double a1 = a0 + Gfx.TAU * Math.Max(0.002, Math.Min(1, io / 100));
+            var col = Level(io);
+            Gfx.StrokeArc(g, cx, cy, r, a0, a1, 12, col, 0.12, round: true);
+            Gfx.StrokeArc(g, cx, cy, r, a0, a1, 5, col, 1, round: true);
+            Gfx.FillCircle(g, cx + r * Math.Cos(a1), cy + r * Math.Sin(a1), 4.5, C.Main, 1);
+
+            double ri = r - 10;
+            Gfx.StrokeCircle(g, cx, cy, ri, 1.5, C.Main, 0.2);
+            Gfx.StrokeArc(g, cx, cy, ri, a0, a0 + Gfx.TAU * Math.Max(0, Math.Min(1, usedPct / 100)), 3, Level(usedPct), 1);
+
+            double fs = Math.Round(r * 0.66);
+            var t = Gfx.Text(g, active == null ? "--" : Fmt.Round(io).ToString(), cx - 4, cy - 1, F(FontRole.Thin, fs), C.Main,
+                align: Align.Center, valign: VAlign.Middle);
+            Gfx.Text(g, "%", t.X + t.W + 1, cy - fs * 0.3, F(FontRole.Light, fs * 0.32), C.Dim);
+            Gfx.Text(g, $"{Fmt.Round(usedPct)}%", cx, cy - fs * 0.5, F(FontRole.Mono, 11), Level(usedPct), align: Align.Center, valign: VAlign.Bottom);
+            L(g, "disk io", cx, cy + fs * 0.42, align: Align.Center, size: 8);
+        }
+
+        // Gauge giá trị % đơn giản (bản Windows thêm, dùng cho RAM): vòng ngoài = pct theo thang nhiệt,
+        // chữ nhỏ phía trên số lớn (chỗ nhiệt độ ở gauge CPU) = top, vòng trong chỉ trang trí.
+        public void ValueGauge(Graphics g, double cx, double cy, double r, double pct, string label, string top, double[] topColor)
+        {
+            double a0 = -Math.PI / 2;
+            Gfx.StrokeCircle(g, cx, cy, r, 1.5, C.Main, 0.28);
+            double a1 = a0 + Gfx.TAU * Math.Max(0.002, Math.Min(1, pct / 100));
+            var col = Level(pct);
+            Gfx.StrokeArc(g, cx, cy, r, a0, a1, 12, col, 0.12, round: true);
+            Gfx.StrokeArc(g, cx, cy, r, a0, a1, 5, col, 1, round: true);
+            Gfx.FillCircle(g, cx + r * Math.Cos(a1), cy + r * Math.Sin(a1), 4.5, C.Main, 1);
+            Gfx.StrokeCircle(g, cx, cy, r - 10, 1.5, C.Main, 0.2);
+            double fs = Math.Round(r * 0.66);
+            var t = Gfx.Text(g, Fmt.Round(pct).ToString(), cx - 4, cy - 1, F(FontRole.Thin, fs), C.Main, align: Align.Center, valign: VAlign.Middle);
+            Gfx.Text(g, "%", t.X + t.W + 1, cy - fs * 0.3, F(FontRole.Light, fs * 0.32), C.Dim);
+            Gfx.Text(g, top, cx, cy - fs * 0.5, F(FontRole.Mono, 11), topColor, align: Align.Center, valign: VAlign.Bottom);
+            L(g, label, cx, cy + fs * 0.42, align: Align.Center, size: 9);
+        }
+
+        // Gauge tốc độ mạng (bản Windows thêm): vòng = % băng thông đang dùng, tuyến tính theo max (tốc độ link).
+        // Từng thử thang log (1 KB/s .. link): vài KB/s đã chiếm 1/4 vòng, dễ hiểu nhầm nên bỏ.
+        // Số lớn = tốc độ, dưới là đơn vị, trên là nhãn.
+        public void RateGauge(Graphics g, double cx, double cy, double r, double rate, double max, double[] col, string label)
+        {
+            double a0 = -Math.PI / 2;
+            double p = max > 0 ? Math.Min(1, Math.Max(0, rate / max)) : 0;
+            Gfx.StrokeCircle(g, cx, cy, r, 1.5, C.Main, 0.28);
+            double a1 = a0 + Gfx.TAU * Math.Max(0.002, p);
+            Gfx.StrokeArc(g, cx, cy, r, a0, a1, 12, col, 0.12, round: true);
+            Gfx.StrokeArc(g, cx, cy, r, a0, a1, 5, col, 1, round: true);
+            Gfx.FillCircle(g, cx + r * Math.Cos(a1), cy + r * Math.Sin(a1), 4.5, C.Main, 1);
+            Gfx.StrokeCircle(g, cx, cy, r - 10, 1.5, C.Main, 0.2);
+
+            string s = Fmt.Rate(rate);
+            int sp = s.IndexOf(' ');
+            string num = sp > 0 ? s.Substring(0, sp) : s, unit = sp > 0 ? s.Substring(sp + 1) : "";
+            double fs = Math.Round(r * 0.66);
+            Gfx.Text(g, num, cx, cy - 1, F(FontRole.Thin, num.Length > 3 ? fs * 0.86 : fs), C.Main, align: Align.Center, valign: VAlign.Middle);
+            L(g, label, cx, cy - fs * 0.5, size: 9, color: col, align: Align.Center, valign: VAlign.Bottom);
+            L(g, unit, cx, cy + fs * 0.42, align: Align.Center, size: 9);
         }
 
         public void Bar(Graphics g, double x, double y, double w, double h, double pct, double[] color = null)
@@ -365,11 +443,11 @@ namespace SystemHud
         static readonly (double h, Action<Graphics, Orbital, HudState, double, double, double, double> fn)[] Sections =
         {
             (74, (g, T, s, x, y, w, h) => T.Header(g, x, y, w, h, s)),
-            (242, (g, T, s, x, y, w, h) => DrawCpu(g, T, s, x, y, w)),
-            (128, (g, T, s, x, y, w, h) => DrawMem(g, T, s, x, y, w)),
-            (176, (g, T, s, x, y, w, h) => DrawGpu(g, T, s, x, y, w)),
-            (152, (g, T, s, x, y, w, h) => DrawDisk(g, T, s, x, y, w)),
-            (178, (g, T, s, x, y, w, h) => DrawNet(g, T, s, x, y, w)),
+            (172, (g, T, s, x, y, w, h) => DrawCpu(g, T, s, x, y, w)),
+            (172, (g, T, s, x, y, w, h) => DrawMem(g, T, s, x, y, w)),
+            (172, (g, T, s, x, y, w, h) => DrawGpu(g, T, s, x, y, w)),
+            (186, (g, T, s, x, y, w, h) => DrawDisk(g, T, s, x, y, w)),
+            (172, (g, T, s, x, y, w, h) => DrawNet(g, T, s, x, y, w)),
         };
 
         public static readonly double NeededH = Sections.Sum(x => x.h) + FooterH + Pad * 2 + Sections.Length * 8;
@@ -431,53 +509,46 @@ namespace SystemHud
             g.Restore(root);
         }
 
-        static void UsageRow(Graphics g, Orbital T, double x, double y, double w, string used, string total, double pct)
-        {
-            T.Label(g, x, y, "USED");
-            T.Value(g, x, y + 13, used, size: 20);
-            T.Label(g, x + w, y, "TOTAL", align: Align.Right);
-            T.Value(g, x + w, y + 13, total, size: 20, align: Align.Right, color: T.C.Dim);
-            T.Big(g, x + w / 2, y - 2, Fmt.Round(pct).ToString(), "%", T.Level(pct), Align.Center);
-        }
-
-        // Thang tự động cho đồ thị tốc độ: làm tròn lên lũy thừa 2, tối thiểu 64 KB/s
-        static double AutoScale(params double[][] arrays)
-        {
-            double m = Math.Max(arrays.SelectMany(a => a).DefaultIfEmpty(0).Max() * 1.1, 64 * 1024);
-            return Math.Pow(2, Math.Ceiling(Math.Log(m, 2)));
-        }
-
         static void DrawCpu(Graphics g, Orbital T, HudState s, double x, double y, double w)
         {
             var c = s.Cpu;
             T.Section(g, x, y, w, "01", "CPU", $"{c.Model} · {c.Threads} threads");
             double top = y + 32;
-            T.Gauge(g, x + 100, top + 100, 70, c.Usage, c.Temp, "cpu load", false);
-            double rx = x + 214, rw = w - 214, ry = top + 2;
-            T.Stat(g, rx, ry, rw, "TEMP", Fmt.Temp(c.Temp), T.TempColor(c.Temp));
-            ry += 22;
+            // Bản Windows: vòng tròn cỡ GPU / ổ đĩa (r 58) thay vì r 70; bỏ dòng TEMP (nhiệt độ đã trong vòng tròn).
+            // Cột phải gọn trong chiều cao vòng tròn: CLOCK, PROC / THR, THREADS rồi đồ thị tải ngay bên dưới
+            T.Gauge(g, x + 68, top + 68, 58, c.Usage, c.Temp, "cpu load", true);
+            double rx = x + 150, rw = w - 150, ry = top + 2;
             T.Stat(g, rx, ry, rw, "CLOCK", c.Freq != null ? $"{Fmt.F(c.Freq.Value, 2)} GHz" : "--");
             ry += 22;
             // Windows không có load average: thay bằng số tiến trình / luồng
             T.Stat(g, rx, ry, rw, "PROC / THR", $"{Fmt.Round(c.Procs)} / {Fmt.Round(c.ThreadCount)}");
-            ry += 28;
+            ry += 26;
             T.Label(g, rx, ry, $"THREADS ×{c.PerCore.Length}");
-            ry += 16;
-            T.Cores(g, rx, ry, rw, 40, c.PerCore);
-            ry += 48;
-            T.Graph(g, rx, ry, rw, top + 206 - ry, new[] { (c.History, T.C.Main) }, 100);
+            ry += 15;
+            T.Cores(g, rx, ry, rw, 38, c.PerCore);
+            ry += 44;
+            T.Graph(g, rx, ry, rw, top + 134 - ry, new[] { (c.History, T.C.Main) }, 100);
         }
 
         static void DrawMem(Graphics g, Orbital T, HudState s, double x, double y, double w)
         {
+            // Bản Windows: vòng tròn kiểu GPU (số lớn = % RAM, chữ nhỏ trên = GB đã dùng), bên phải USED / AVAILABLE /
+            // CACHED / PAGEFILE + thanh pagefile. Bản gốc: hàng USED / % / TOTAL + thanh + CACHE / SWAP.
             var m = s.Mem;
             T.Section(g, x, y, w, "02", "MEMORY", $"{Fmt.GB(m.Total)} GB total");
             double top = y + 32;
-            UsageRow(g, T, x, top, w, $"{Fmt.GB(m.Used)} GB", $"{Fmt.GB(m.Total)} GB", m.Percent);
-            T.Bar(g, x, top + 46, w, 13, m.Percent);
-            T.Stat(g, x, top + 70, w / 2 - 14, "CACHED", $"{Fmt.GB(m.Cached)} GB");
-            T.Stat(g, x + w / 2 + 14, top + 70, w / 2 - 14, "PAGEFILE", $"{Fmt.GB(m.SwapUsed)} / {Fmt.GB(m.SwapTotal)} GB",
+            T.ValueGauge(g, x + 68, top + 68, 58, m.Percent, "ram used", $"{Fmt.GB(m.Used)} GB", T.Level(m.Percent));
+            double rx = x + 150, rw = w - 150, ry = top + 2;
+            T.Stat(g, rx, ry, rw, "USED", $"{Fmt.GB(m.Used)} / {Fmt.GB(m.Total)} GB");
+            ry += 28;
+            T.Stat(g, rx, ry, rw, "AVAILABLE", $"{Fmt.GB(Math.Max(0, m.Total - m.Used))} GB");
+            ry += 28;
+            T.Stat(g, rx, ry, rw, "CACHED", $"{Fmt.GB(m.Cached)} GB");
+            ry += 32;
+            T.Stat(g, rx, ry, rw, "PAGEFILE", $"{Fmt.GB(m.SwapUsed)} / {Fmt.GB(m.SwapTotal)} GB",
                 m.SwapPercent > 50 ? T.C.Warn : null);
+            ry += 20;
+            T.Bar(g, rx, ry, rw, 10, m.SwapPercent);
         }
 
         static void DrawGpu(Graphics g, Orbital T, HudState s, double x, double y, double w)
@@ -491,16 +562,15 @@ namespace SystemHud
                 return;
             }
             T.Gauge(g, x + 68, top + 68, 58, gp.Util, gp.Temp, "core", true);
+            // Bản Windows bỏ dòng TEMP: nhiệt độ đã hiện trong vòng tròn; 3 dòng còn lại giãn ra cho đủ chiều cao cũ
             double rx = x + 150, rw = w - 150, ry = top + 2;
-            T.Stat(g, rx, ry, rw, "TEMP", Fmt.Temp(gp.Temp), T.TempColor(gp.Temp));
-            ry += 21;
             T.Stat(g, rx, ry, rw, "POWER", gp.Power == null ? "--"
                 : $"{Fmt.F(gp.Power.Value, 0)} / {(gp.PowerLimit == null ? "--" : Fmt.F(gp.PowerLimit.Value, 0))} W");
-            ry += 21;
+            ry += 28;
             T.Stat(g, rx, ry, rw, "FAN", gp.Fan == null ? "--" : $"{Fmt.Round(gp.Fan.Value)}%");
-            ry += 21;
+            ry += 28;
             T.Stat(g, rx, ry, rw, "CLOCK", gp.Clock == null ? "--" : $"{Fmt.Round(gp.Clock.Value)} MHz");
-            ry += 26;
+            ry += 32;
             T.Stat(g, rx, ry, rw, "VRAM", gp.MemTotal > 0
                 ? $"{Fmt.F(gp.MemUsed / Math.Pow(2, 30), 1)} / {Fmt.F(gp.MemTotal / Math.Pow(2, 30), 1)} GB"
                 : $"{Fmt.F(gp.MemUsed / Math.Pow(2, 30), 1)} GB");
@@ -510,33 +580,83 @@ namespace SystemHud
 
         static void DrawDisk(Graphics g, Orbital T, HudState s, double x, double y, double w)
         {
-            var d = s.Disk;
-            T.Section(g, x, y, w, "04", "STORAGE", $"{d.Device} · {d.Mount}");
+            // Bản Windows: mỗi ổ vật lý một gauge (tối đa 2, ổ hệ thống trước), khác bản gốc chỉ có ổ "/"
+            var all = s.Disks ?? new DiskState[0];
+            string sub = all.Length == 0 ? "no disks"
+                : $"{all.Length} disk{(all.Length > 1 ? "s" : "")} · {Fmt.SizePair(all.Sum(d => d.Used), all.Sum(d => d.Total))}";
+            T.Section(g, x, y, w, "04", "STORAGE", sub);
             double top = y + 32;
-            UsageRow(g, T, x, top, w, $"{Fmt.GB(d.Used)} GB", $"{Fmt.GB(d.Total)} GB", d.Percent);
-            T.Bar(g, x, top + 46, w, 11, d.Percent);
-            double cw = w / 3;
-            T.Stat(g, x, top + 68, cw - 12, "READ", Fmt.Rate(d.ReadRate), T.C.Main);
-            T.Stat(g, x + cw, top + 68, cw - 12, "WRITE", Fmt.Rate(d.WriteRate), T.C.Accent);
-            T.Stat(g, x + 2 * cw, top + 68, cw, "TEMP", Fmt.Temp(d.Temp), T.TempColor(d.Temp));
-            T.Graph(g, x, top + 88, w, 30, new[] { (d.ReadHist, T.C.Main), (d.WriteHist, T.C.Accent) },
-                AutoScale(d.ReadHist, d.WriteHist), mirror: true);
+            if (all.Length == 0)
+            {
+                T.Label(g, x, top + 10, "NO TELEMETRY");
+                return;
+            }
+            int n = Math.Min(2, all.Length);
+            double gap = 16, cw = (w - gap * (n - 1)) / n;
+            for (int i = 0; i < n; i++)
+                DiskCell(g, T, all[i], x + i * (cw + gap), top, cw);
+        }
+
+        // Một ổ: gauge bên trái (cỡ gauge GPU, số lớn = % disk IO), bên phải 3 mục READ / WRITE / USED
+        // (nhãn trên, số dưới vì ô chỉ rộng khoảng 200), dưới cùng là ký tự ổ · model
+        static void DiskCell(Graphics g, Orbital T, DiskState d, double x, double top, double w)
+        {
+            const double r = 58;
+            double cx = x + r + 4, cy = top + 66;
+            T.DiskGauge(g, cx, cy, r, d.Active, d.Percent);
+
+            double rx = cx + r + 12;
+            var vf = Fonts.Get(FontRole.Mono, 12.5);
+            void Item(double ry, string label, string value, double[] color)
+            {
+                T.Label(g, rx, ry, label, size: 8.5);
+                Gfx.Text(g, value, rx, ry + 11, vf, color);
+            }
+            Item(cy - 54, "READ", Fmt.Rate(d.ReadRate), T.C.Main);
+            Item(cy - 16, "WRITE", Fmt.Rate(d.WriteRate), T.C.Accent);
+            Item(cy + 22, "USED", Fmt.SizePair(d.Used, d.Total, "/", 1), T.Level(d.Percent));
+
+            // Ký tự ổ · model (· nhiệt độ nếu có), cắt bớt model cho vừa ô
+            string head = d.Mount + " · ", tail = d.Temp != null ? $" · {Fmt.Temp(d.Temp)}" : "";
+            string model = d.Device;
+            var hf = Fonts.Get(FontRole.Label, 8.5);
+            while (model.Length > 4 && Gfx.Measure(g, (head + model + tail).ToUpperInvariant(), hf, 1.8).W > w)
+                model = model.Substring(0, model.Length - 2).TrimEnd('-', ' ') + "…";
+            T.Label(g, x, top + 140, head + model + tail, size: 8.5, alpha: 0.7);
         }
 
         static void DrawNet(Graphics g, Orbital T, HudState s, double x, double y, double w)
         {
+            // Bản Windows: hai vòng tròn DOWNLINK / UPLINK (cỡ gauge GPU), mỗi vòng kèm PEAK / AVG / TOTAL bên phải,
+            // đồ thị đọc/ghi gương bên dưới. Bản gốc: hai số lớn + đồ thị cao + dòng RX / SCALE / TX.
             var n = s.Net;
-            T.Section(g, x, y, w, "05", "NETWORK", (n.Iface.Length > 0 ? n.Iface : "offline") + (n.Ip.Length > 0 ? $" · {n.Ip}" : ""));
+            string link = n.LinkSpeed <= 0 ? "" : n.LinkSpeed * 8 >= 1e9 ? $" · {Fmt.F(n.LinkSpeed * 8 / 1e9, 1)} Gbps" : $" · {Fmt.Round(n.LinkSpeed * 8 / 1e6)} Mbps";
+            T.Section(g, x, y, w, "05", "NETWORK", (n.Iface.Length > 0 ? n.Iface : "offline") + (n.Ip.Length > 0 ? $" · {n.Ip}" : "") + link);
             double top = y + 32;
-            T.Label(g, x, top, "▼ DOWNLINK");
-            T.Value(g, x, top + 13, Fmt.Rate(n.RxRate), size: 22, color: T.C.Main);
-            T.Label(g, x + w, top, "UPLINK ▲", align: Align.Right);
-            T.Value(g, x + w, top + 13, Fmt.Rate(n.TxRate), size: 22, color: T.C.Accent, align: Align.Right);
-            double max = AutoScale(n.RxHist, n.TxHist);
-            T.Graph(g, x, top + 48, w, 74, new[] { (n.RxHist, T.C.Main), (n.TxHist, T.C.Accent) }, max, mirror: true);
-            T.Label(g, x, top + 128, $"RX {Fmt.Bytes(n.RxTotal)}", size: 10);
-            T.Label(g, x + w / 2, top + 128, $"SCALE {Fmt.Rate(max)}", size: 10, align: Align.Center, alpha: 0.45);
-            T.Label(g, x + w, top + 128, $"TX {Fmt.Bytes(n.TxTotal)}", size: 10, align: Align.Right);
+            double max = n.LinkSpeed > 0 ? n.LinkSpeed : 125e6; // không rõ tốc độ link: coi như 1 Gbps
+            double gap = 16, cw = (w - gap) / 2;
+            NetCell(g, T, x, top, cw, "▼ down", n.RxRate, n.RxHist, n.RxTotal, max, T.C.Main);
+            NetCell(g, T, x + cw + gap, top, cw, "up ▲", n.TxRate, n.TxHist, n.TxTotal, max, T.C.Accent);
+            // đồ thị lịch sử đã bỏ để nhường chiều cao cho vòng tròn MEMORY; PEAK / AVG thay phần thông tin đó
+        }
+
+        static void NetCell(Graphics g, Orbital T, double x, double top, double w, string label, double rate, double[] hist,
+            double total, double max, double[] col)
+        {
+            const double r = 58;
+            double cx = x + r + 4, cy = top + 66;
+            T.RateGauge(g, cx, cy, r, rate, max, col, label);
+            double rx = cx + r + 12;
+            var vf = Fonts.Get(FontRole.Mono, 12.5);
+            void Item(double ry, string name, string value, double[] c)
+            {
+                T.Label(g, rx, ry, name, size: 8.5);
+                Gfx.Text(g, value, rx, ry + 11, vf, c);
+            }
+            // đỉnh / trung bình trên cửa sổ lịch sử (HISTORY mẫu), tổng từ lúc card mạng bật
+            Item(cy - 54, "PEAK", Fmt.Rate(hist.Length > 0 ? hist.Max() : 0), col);
+            Item(cy - 16, "AVG", Fmt.Rate(hist.Length > 0 ? hist.Average() : 0), T.C.Main);
+            Item(cy + 22, "TOTAL", Fmt.Bytes(total), T.C.Main);
         }
     }
 }

@@ -57,21 +57,21 @@ luồng nền (System.Threading.Timer, one-shot, tự hẹn lần sau)
   _ui.BeginInvoke(OnSample)
                        |
 luồng UI (message loop WinForms)
-  OnSample (HudApp.cs:107): Animator.Push + Frame -> Render; bật _frameTimer (1000/fps ms)
-  OnFrame  (HudApp.cs:120): Animator.Frame -> Render; tắt timer khi hiệu ứng xong
-  Render   (HudApp.cs:130): Graphics.FromImage(Surface.Bitmap) -> Hud.Draw -> DesktopWindow.Present
-  Hud.Draw (Hud.cs:382):
+  OnSample (HudApp.cs:109): Animator.Push + Frame -> Render; bật _frameTimer (1000/fps ms)
+  OnFrame  (HudApp.cs:122): Animator.Frame -> Render; tắt timer khi hiệu ứng xong
+  Render   (HudApp.cs:132): Graphics.FromImage(Surface.Bitmap) -> Hud.Draw -> DesktopWindow.Present
+  Hud.Draw (Hud.cs:460):
      nền panel cache vào bitmap theo key theme:w x h (gradient, vầng sáng, sao, dấu +)
      ScaleTransform(k), k = min(w/480, h/NeededH)  -> toạ độ thiết kế 480px như hud.js
      6 khối: Header, CPU, Memory, GPU, Storage, Network + Footer
   DesktopWindow.Present (DesktopWindow.cs:161): UpdateLayeredWindow(ULW_ALPHA) từ DIB 32bpp premultiplied
 ```
 
-nvidia-smi chạy liên tục (`-lms 1000`) trên luồng đọc stdout riêng: `ParseNvidia` (Sensors.cs:518) ghi vào `_s.Gpu` dưới khoá `_gate`.
+nvidia-smi chạy liên tục (`-lms 1000`) trên luồng đọc stdout riêng: `ParseNvidia` (Sensors.cs:569) ghi vào `_s.Gpu` dưới khoá `_gate`.
 
 ## Luồng chi tiết
 
-### Lấy mẫu — `HudApp.Sample` (HudApp.cs:80)
+### Lấy mẫu — `HudApp.Sample` (HudApp.cs:82)
 
 - `Interlocked` chống chạy chồng.
 - Mẫu đầu chưa có tải CPU và tốc độ (cần hai lần đọc để lấy hiệu số), nên mẫu thứ hai được lấy sau 1 giây; từ đó cách đều `IntervalMs`, **trừ đi thời gian đã đọc cảm biến**. Nhờ vậy `animMs = intervalMs` cho chuyển động liền mạch.
@@ -81,39 +81,49 @@ nvidia-smi chạy liên tục (`-lms 1000`) trên luồng đọc stdout riêng: 
 | Số liệu | Nguồn | Hàm |
 |---|---|---|
 | Tên máy, OS, kernel | `Environment.MachineName`, registry `Windows NT\CurrentVersion` (build >= 22000 thì đổi "Windows 10" thành "Windows 11") | `ReadOsInfo` |
-| CPU tổng | `GetSystemTimes` (hiệu số idle / kernel+user) | `ReadCpu` Sensors.cs:152 |
-| CPU từng luồng | `NtQuerySystemInformation(8)`; chỉ nhóm xử lý hiện tại (≤64) | `ReadPerCore` Sensors.cs:184 |
+| CPU tổng | `GetSystemTimes` (hiệu số idle / kernel+user) | `ReadCpu` Sensors.cs:155 |
+| CPU từng luồng | `NtQuerySystemInformation(8)`; chỉ nhóm xử lý hiện tại (≤64) | `ReadPerCore` Sensors.cs:187 |
 | Xung CPU | PDH `\Processor Information(_Total)\% Processor Performance` × `~MHz` registry (cách Task Manager tính) | `ReadCpu` |
 | PROC / THR | `GetPerformanceInfo` (thay load average của Linux) | `ReadCpu` |
-| RAM | `GlobalMemoryStatusEx`; Cached = Standby (Core+Normal+Reserve) + Modified Page List (PDH), giống Task Manager | `ReadMem` Sensors.cs:218 |
-| Pagefile | WMI `Win32_PageFileUsage` (mỗi 10 mẫu) | `ReadPageFile` Sensors.cs:241 |
-| Ổ hệ thống | `DriveInfo` (mỗi 10 mẫu); model qua WMI `ASSOCIATORS OF` LogicalDisk→Partition→DiskDrive | `ReadDisk` Sensors.cs:291, `FindSystemDisk` Sensors.cs:257 |
-| Đọc/ghi đĩa | PDH `\LogicalDisk(C:)\Disk Read/Write Bytes/sec` | `ReadDisk` |
-| Mạng | `GetBestInterface(8.8.8.8)` → `NetworkInterface` có IPv4 Index trùng → `GetIPStatistics` (64-bit) | `ReadNet` Sensors.cs:336 |
-| GPU NVIDIA | `nvidia-smi -i 0 --query-gpu=... -lms 1000` | `StartNvidia` Sensors.cs:461 |
-| GPU khác | PDH `\GPU Engine(*engtype_3D)\Utilization Percentage` (gom theo luid, lấy max), `\GPU Adapter Memory(*)\Dedicated Usage`; tên + VRAM tổng từ registry class display | `ReadGpuFallback` Sensors.cs:542, `FindGpuFromRegistry` Sensors.cs:562 |
-| Nhiệt CPU/ổ/GPU | LibreHardwareMonitor: WMI `root\LibreHardwareMonitor` / `root\OpenHardwareMonitor`, hoặc HTTP `http://127.0.0.1:8085/data.json` | `ReadHwTemps` Sensors.cs:399, `LhmHttp.ReadTemperatures` LhmHttp.cs:19 |
-| Nhiệt CPU dự phòng | WMI `root\WMI MSAcpi_ThermalZoneTemperature` (cần admin; bỏ nếu ngoài 0–125°C) | `ReadAcpiTemp` Sensors.cs:440 |
-| Nhiệt ổ dự phòng | WMI `MSFT_StorageReliabilityCounter` (cần admin) | `ReadStorageTemp` Sensors.cs:314 |
+| RAM | `GlobalMemoryStatusEx`; Cached = Standby (Core+Normal+Reserve) + Modified Page List (PDH), giống Task Manager | `ReadMem` Sensors.cs:221 |
+| Pagefile | WMI `Win32_PageFileUsage` (mỗi 10 mẫu) | `ReadPageFile` Sensors.cs:244 |
+| Danh sách ổ | Mỗi ổ vật lý **có ký tự ổ** là một `DiskState` trong `HudState.Disks`. Lấy từ tên instance PDH `PhysicalDisk` dạng `0 C:`, `1 D: F:` (số ổ + ký tự ổ); instance không có ký tự (ổ ảo, chưa phân vùng) và `_Total` bị bỏ. Ổ hệ thống đứng đầu (số ổ tìm qua WMI `ASSOCIATORS OF` LogicalDisk→Partition→DiskDrive), còn lại theo số ổ | `ReadDisks` Sensors.cs:299, `FindSystemDisk` Sensors.cs:260 |
+| Model ổ | WMI `Win32_DiskDrive` (Index → Model), đọc một lần khi khởi tạo | `FindSystemDisk` |
+| Dung lượng | Tổng `DriveInfo` của các ký tự ổ trên ổ vật lý đó (mỗi 10 mẫu, cache theo ký tự trong `_volUsage`) | `ReadDisks` |
+| Đọc/ghi đĩa | PDH `\PhysicalDisk(*)\Disk Read/Write Bytes/sec` | `ReadDisks` |
+| IO (% ổ bận) | PDH `\PhysicalDisk(*)\% Idle Time`, lấy `100 - idle` kẹp 0–100 (cách Task Manager tính "Active time"). Không dùng `% Disk Time` vì cộng dồn hàng đợi, vượt 100 (đo được 505) | `ReadDisks` |
+| Nhiệt độ ổ | LibreHardwareMonitor chỉ cho một số → gán cho ổ hệ thống; ổ khác lấy WMI `MSFT_StorageReliabilityCounter` theo `DeviceId` = số ổ (cần admin, lỗi một lần là tắt) | `ReadDisks`, `ReadStorageTemps` Sensors.cs:362 |
+| Mạng | `GetBestInterface(8.8.8.8)` → `NetworkInterface` có IPv4 Index trùng → `GetIPStatistics` (64-bit) | `ReadNet` Sensors.cs:384 |
+| Tốc độ link | `NetworkInterface.Speed` (bit/s, Wi-Fi là tốc độ kết nối hiện tại) / 8 → `NetState.LinkSpeed` byte/s; ≤ 0 thì 0 (không rõ) | `ReadNet` |
+| GPU NVIDIA | `nvidia-smi -i 0 --query-gpu=... -lms 1000` | `StartNvidia` Sensors.cs:512 |
+| GPU khác | PDH `\GPU Engine(*engtype_3D)\Utilization Percentage` (gom theo luid, lấy max), `\GPU Adapter Memory(*)\Dedicated Usage`; tên + VRAM tổng từ registry class display | `ReadGpuFallback` Sensors.cs:593, `FindGpuFromRegistry` Sensors.cs:613 |
+| Nhiệt CPU/ổ/GPU | LibreHardwareMonitor: WMI `root\LibreHardwareMonitor` / `root\OpenHardwareMonitor`, hoặc HTTP `http://127.0.0.1:8085/data.json` | `ReadHwTemps` Sensors.cs:450, `LhmHttp.ReadTemperatures` LhmHttp.cs:19 |
+| Nhiệt CPU dự phòng | WMI `root\WMI MSAcpi_ThermalZoneTemperature` (cần admin; bỏ nếu ngoài 0–125°C) | `ReadAcpiTemp` Sensors.cs:491 |
 
 Nguồn nhiệt LHM: chưa tìm thấy thì cứ 10 mẫu dò lại một lần, để LHM bật sau HUD vẫn được nhận. Chọn nhiệt CPU theo thứ tự tên `CPU Package` → `Core (Tctl/Tdie)` → `Core (Tctl)` → `Core (Tdie)` → `Core Max` → `Core Average` → giá trị lớn nhất của nhóm cpu.
 
 ### Nội suy — `Animator` / `Interp` (State.cs)
 
-- `Interp.Value` (State.cs:75) duyệt field bằng reflection: `double`/`double?` thì nội suy tuyến tính; `double[]` có tên kết thúc bằng `History`/`Hist` thì lấy mảng mới (phần trượt do `Shift` lo); mảng khác cùng độ dài thì nội suy từng phần tử; class con thì đệ quy; còn lại lấy giá trị mới.
-- `Frame` (State.cs:129): easeOutCubic; `Tick = to.Tick - 1 + e` (đèn SYNC nhấp nháy); `Shift = 1 - e` (đồ thị trượt trái một bước).
+- `Interp.Value` (State.cs:77) duyệt field bằng reflection: `double`/`double?` thì nội suy tuyến tính; `double[]` có tên kết thúc bằng `History`/`Hist` thì lấy mảng mới (phần trượt do `Shift` lo); mảng khác cùng độ dài thì nội suy từng phần tử; mảng đối tượng (`DiskState[]`) cùng độ dài thì nội suy từng phần tử, riêng `DiskState` khác `Mount` (thứ tự ổ đổi) thì lấy luôn giá trị mới; class con thì đệ quy; còn lại lấy giá trị mới.
+- `Frame` (State.cs:149): easeOutCubic; `Tick = to.Tick - 1 + e` (đèn SYNC nhấp nháy); `Shift = 1 - e` (đồ thị trượt trái một bước).
 
 ### Vẽ — `Hud` / `Orbital` / `Gfx`
 
-- Bố cục `Sections` (Hud.cs:365): cao 74 / 242 / 128 / 176 / 152 / 178, footer 22, pad 20, `DesignW = 480`. Khoảng trống còn dư chia đều giữa các khối, giống `drawHud` trong hud.js.
-- Các hàm theme (Hud.cs): `Panel`:121, `Gauge`:195, `Graph`:232 (Bezier `(mx,py),(mx,qy)` như Cairo `curveTo`), `Cores`, `Stat`, `Big`, `Bar`, `Footer`.
-- Khối: `DrawCpu`:450, `DrawMem`:471, `DrawGpu`:483, `DrawDisk`:511, `DrawNet`:526.
+- Bố cục `Sections` (Hud.cs:443): cao 74 / 172 / 172 / 172 / 186 / 172 (gốc 74 / 242 / 128 / 176 / 152 / 178; bản Windows dùng gauge r 58 cho mọi khối nên mỗi khối cao khoảng 32 + 136; tổng phải giữ quanh 1040 để HUD trên màn 1080p không bị co — hiện `NeededH` = 1058, co về 98%), footer 22, pad 20, `DesignW = 480`. Khoảng trống còn dư chia đều giữa các khối, giống `drawHud` trong hud.js.
+- Các hàm theme (Hud.cs): `Panel`:131, `Gauge`:205, `DiskGauge`:230, `ValueGauge`:255, `RateGauge`:274 (ba gauge sau là bản Windows thêm), `Graph`:310 (Bezier `(mx,py),(mx,qy)` như Cairo `curveTo`), `Cores`, `Stat`, `Big`, `Bar`, `Footer`.
+- Khối: `DrawCpu`:512, `DrawMem`:533, `DrawGpu`:554, `DrawDisk`:581 (+ `DiskCell`), `DrawNet`:628 (+ `NetCell`).
 - `Gfx` thay Cairo/Pango:
-  - `Text` (Gfx.cs:141): căn trái/giữa/phải, valign top/middle/bottom/baseline, giãn ký tự (`spacing`) bằng cách vẽ từng ký tự. Chiều cao dòng = `LineSpacing/EmHeight × size`.
-  - `DrawCached` (Gfx.cs:188): cache bitmap chữ theo `(chuỗi, font, màu, spacing, tỉ lệ k)`, dán 1:1 vào lưới pixel thiết bị; tối đa 800 mục, đầy thì xoá hết. Chỉ bật trong `Hud.Draw` (`Gfx.Scale = k`).
-  - `LinearPad` (Gfx.cs:283): gradient tuyến tính kiểu Cairo `EXTEND_PAD`.
+  - `Text` (Gfx.cs:188): căn trái/giữa/phải, valign top/middle/bottom/baseline, giãn ký tự (`spacing`) bằng cách vẽ từng ký tự. Chiều cao dòng = `LineSpacing/EmHeight × size`.
+  - `DrawCached` (Gfx.cs:238): cache bitmap chữ theo `(chuỗi, font, màu, spacing, tỉ lệ k)`, dán 1:1 vào lưới pixel thiết bị; tối đa 800 mục, đầy thì xoá hết. Chỉ bật trong `Hud.Draw` (`Gfx.Scale = k`).
+  - `LinearPad` (Gfx.cs:336): gradient tuyến tính kiểu Cairo `EXTEND_PAD`.
   - `StrokeArc`: góc radian chiều kim đồng hồ, 0 = hướng 3 giờ, giống `cairo.arc`.
-- Font (`Fonts`): ưu tiên Noto (giống Ubuntu) nếu máy có, nếu không: Thin = Segoe UI Light, Light = Segoe UI, Title = Segoe UI Semibold, Label/Mono = Bahnschrift SemiCondensed (dự phòng Consolas).
+- Font (`Fonts`, Gfx.cs): dùng đúng bộ Noto của bản Ubuntu, **nhúng trong exe**:
+  - File ở `fonts/` (`NotoSans-Light`, `-Regular`, `-Medium`, `-SemiCondensedMedium`, `NotoSansMono-CondensedMedium`, bản hinted), nhúng bằng `EmbeddedResource` với tên `fonts.<file>.ttf`, nạp một lần qua `PrivateFontCollection.AddMemoryFont` (vùng nhớ `AllocCoTaskMem` không giải phóng vì GDI+ cần nó suốt đời tiến trình).
+  - Vai trò → family: Thin = Noto Sans Light, Light = Noto Sans, Title = Noto Sans Medium, Label = Noto Sans SemiCondensed Medium, Mono = Noto Sans Mono Condensed Medium. `Find` tìm trong font nhúng trước, rồi font cài trên máy; dự phòng Segoe UI / Bahnschrift / Consolas.
+  - Font đã cắt bằng fonttools còn Latin + tiếng Việt + dấu câu, mũi tên, hình học (`▲▼`), tổng khoảng 750 KB. Lệnh cắt: `python -m fontTools.subset <file> --unicodes="U+0020-007E,U+00A0-024F,U+0300-036F,U+1EA0-1EF9,U+2000-206F,U+20AB,U+2190-21FF,U+2212,U+25A0-25FF" --layout-features='*' --name-IDs='*' --name-languages='*'`. Nguồn: `github.com/notofonts/notofonts.github.io` (`fonts/<Family>/hinted/ttf/`), giấy phép SIL OFL ở `fonts/OFL.txt`. Thêm ký tự ngoài dải trên thì phải cắt lại, nếu không GDI+ vẽ ô vuông.
+  - `TextRenderingHint.AntiAliasGridFit` (nét chữ nhỏ sắc hơn `AntiAlias` một chút).
+  - `Fonts.TextScale` (config `textScale`, mặc định 1.1, kẹp 0.8–1.4): nhân cỡ cho chữ **dưới 18 px** (nhãn, số liệu, tiêu đề). Đo trên ảnh chụp bản Ubuntu thì chữ Pango to hơn GDI+ cùng cỡ px khoảng 10–15%. Chữ lớn (tên máy 26, giờ 40, số % trong vòng tròn) không nhân để không chạm nhau (thử nhân hết thì tên máy chạm đồng hồ).
+  - Ảnh chữ trong cache vẽ với `PixelOffsetMode.None` (không dùng `Half` như hình học) và làm tròn vị trí từng ký tự về pixel thiết bị (`DrawRaw(..., snapK)`), để nét đã hinting không bị lệch nửa pixel thành nhoè. `TextContrast` 0 / 4 / 12 đã thử, khác biệt không đáng kể nên để mặc định.
 
 ### Cửa sổ desktop — `DesktopWindow`
 
@@ -125,7 +135,7 @@ Nguồn nhiệt LHM: chưa tìm thấy thì cứ 10 mẫu dò lại một lần,
 - `WM_DISPLAYCHANGE` / `WM_SETTINGCHANGE` / `WM_DPICHANGED` / `SystemEvents.DisplaySettingsChanged` → `Relayout`.
 - `Surface`: DIB section top-down 32bpp, bọc bằng `Bitmap(..., Format32bppPArgb, bits)`: GDI+ vẽ thẳng vào bộ nhớ mà `UpdateLayeredWindow` đọc, không copy.
 
-### Vị trí — `HudApp.Relayout` (HudApp.cs:165)
+### Vị trí — `HudApp.Relayout` (HudApp.cs:167)
 
 `width = round(screen.Width × widthFraction) - 2×gap`; trái: `wa.Left + gap`, phải: `wa.Right - width - gap`; cao từ `wa.Top + gap` tới `wa.Bottom - gap`. `wa` = `Screen.WorkingArea` (đã trừ taskbar). Màn hình: `"primary"`, `"secondary"` (màn hình đầu tiên không phải primary), hoặc số thứ tự trong `Screen.AllScreens`.
 
@@ -191,6 +201,7 @@ system-hud-windows/
 ├─ SystemHud.csproj      net48, WinExe
 ├─ app.manifest          PerMonitorV2 DPI, asInvoker
 ├─ build.cmd             build + gom vào dist/ (dist/, bin/, obj/ không commit)
+├─ fonts/                font Noto nhúng vào exe (đã cắt Latin + tiếng Việt) + OFL.txt (giấy phép)
 └─ src/
    ├─ Program.cs         Main, single instance, --preview, --bench
    ├─ HudApp.cs          điều phối, timer, vị trí, khay hệ thống
@@ -246,6 +257,21 @@ Bản Ubuntu nằm cùng repo (`system-hud/`). Khi có commit mới, xem `git lo
 - `side` mặc định `right` (yêu cầu của chủ dự án cho Windows; bản Ubuntu `left`).
 - `autostart` (chỉ có ở Windows; Ubuntu do GNOME bật extension).
 - Dòng `LOAD` → `PROC / THR`; `SWAP` → `PAGEFILE`; `CACHE` → `CACHED`.
+- NETWORK vẽ khác bản gốc (bản gốc: hai số lớn DOWNLINK / UPLINK + đồ thị gương cao 74 + dòng RX / SCALE / TX). Bản Windows (`DrawNet`, `NetCell`, `Orbital.RateGauge` trong Hud.cs; yêu cầu chủ dự án 2026-11-18):
+  - Hai ô DOWN / UP (cách nhau 16), mỗi ô một gauge r 58: vòng = **% băng thông đang dùng, tuyến tính** theo tốc độ link (không rõ link thì 125 MB/s = 1 Gbps). Lúc dùng bình thường vòng gần rỗng, chỉ đầy khi tải nặng. Đã thử thang log (1 KB/s → link) nhưng vài KB/s đã chiếm khoảng 1/4 vòng, dễ hiểu nhầm, chủ dự án chọn tính đúng tỉ lệ (2026-11-18). Màu: down = `C.Main`, up = `C.Accent`.
+  - Trong vòng: nhãn `▼ DOWN` / `UP ▲` (màu của vòng), số tốc độ lớn (thu 14% khi dài hơn 3 ký tự), đơn vị bên dưới.
+  - Bên phải mỗi vòng: PEAK (max lịch sử), AVG (trung bình lịch sử; lịch sử = `HISTORY` 60 mẫu), TOTAL (byte từ lúc card bật).
+  - Tiêu đề phụ thêm tốc độ link (`· 72 Mbps`). Bỏ đồ thị lịch sử và dòng RX / SCALE / TX (đồ thị bỏ để nhường chiều cao cho vòng tròn MEMORY). Khối cao 172.
+- MEMORY vẽ khác bản gốc (bản gốc: hàng USED / % / TOTAL + thanh + CACHE / SWAP). Bản Windows (`DrawMem`, `Orbital.ValueGauge`; yêu cầu chủ dự án 2026-11-18): bố cục như GPU — gauge r 58 (số lớn = % RAM, chữ nhỏ trên = GB đã dùng màu theo thang nhiệt, nhãn `RAM USED`); cột phải từ `x + 150`: USED, AVAILABLE (tổng − đã dùng), CACHED, PAGEFILE (màu cảnh báo khi > 50%) + thanh % pagefile. Khối cao 172. GPU rút từ 176 xuống 172 cho đều.
+- Khối CPU (theo yêu cầu chủ dự án 2026-11-18): bỏ dòng `TEMP` bên phải (nhiệt độ đã hiện trong vòng tròn); vòng tròn cỡ GPU (r 58, `small`) thay vì r 70; cột phải từ `x + 150`, gọn trong chiều cao vòng tròn: CLOCK, PROC / THR, THREADS (cao 38), đồ thị tải CPU ngay dưới (đáy ở `top + 134`, ngang đáy vòng tròn). Khối cao 172 thay vì 242. (Đã thử đồ thị chạy hết bề ngang dưới vòng tròn: cách xa phần trên và sát khối MEMORY, chủ dự án không chọn.) Khối GPU cũng bỏ dòng `TEMP`; POWER / FAN / CLOCK giãn cách 28 (gốc 21), VRAM cách 32, để giữ nguyên chiều cao khối.
+- STORAGE vẽ khác hẳn bản gốc (bản gốc: một ổ `/`, hàng USED / % / TOTAL + thanh + READ / WRITE / TEMP + đồ thị). Bản Windows (`DrawDisk` Hud.cs:581, `DiskCell` Hud.cs:602, `Orbital.DiskGauge` Hud.cs:230):
+  - Mỗi ổ vật lý một ô, tối đa 2 ô chia đôi bề rộng (cách nhau 16, mỗi ô rộng khoảng 200). Tiêu đề phụ: số ổ · tổng đã dùng / tổng dung lượng.
+  - Gauge bên trái ô, cùng cỡ gauge GPU (r 58, chữ số lớn `r × 0.66`), cùng kiểu gauge CPU: **số lớn + vòng ngoài = % disk IO** (% thời gian ổ bận), nhãn `DISK IO`. Vòng trong mảnh + chữ nhỏ trên số lớn = % dung lượng đã dùng (vị trí nhiệt độ ở gauge CPU), màu theo thang nhiệt.
+  - Bên phải gauge 3 mục READ, WRITE, USED, mỗi mục nhãn ở trên, số ở dưới (chỗ còn lại chỉ khoảng 70 px, không đủ cho nhãn và số trên cùng dòng). USED = `đã dùng/tổng`, cùng đơn vị theo tổng qua `Fmt.SizePair` (TB lấy 1 chữ số lẻ cho vừa), màu theo % dung lượng.
+  - Dòng dưới cùng: ký tự ổ · model (cắt bớt cho vừa ô) · nhiệt độ nếu có.
+  - Bỏ đồ thị đọc/ghi. Khối cao 186.
+  - Quyết định bố cục theo yêu cầu chủ dự án (2026-11-18): % disk IO là số chính; dung lượng GB đưa ra ngoài vòng tròn; vòng tròn cỡ bằng GPU.
+  - % ổ bận bên Linux lấy được từ `io_ticks` trong `/proc/diskstats` nếu muốn port ngược.
 - Chỉ có theme `orbital` và `orbitalLight`.
 
 Chưa đồng bộ (chờ chủ dự án quyết, 2026-11-16): bản Ubuntu đã đổi `intervalMs`/`animMs` mặc định 3000 → 5000 và có cửa sổ cấu hình (#34); bản Windows vẫn 3000 và chỉ cấu hình bằng sửa `config.json`.
@@ -277,6 +303,9 @@ Chưa đồng bộ (chờ chủ dự án quyết, 2026-11-16): bản Ubuntu đã
 - **`ProductName` của Windows 11 vẫn ghi "Windows 10"**: dựa vào `CurrentBuild >= 22000`.
 - **Máy nhiều luồng** (48+): vạch luồng thu nhỏ theo bề rộng (`lw = min(4, cw×0.6)`); quá 64 luồng chỉ thấy nhóm đầu.
 - **HUD không tự chạy sau khi khởi động lại máy** (bản đầu): tự khởi động là tuỳ chọn tắt mặc định. Nay mặc định bật qua `autostart`; mục Run trỏ tới exe đang chạy, nên chạy từ `dist\` thì Run trỏ sang `dist\`.
+- **Chữ mảnh, khó đọc hơn bản Ubuntu** (bản đầu): máy Windows thường không có Noto Light / Medium / SemiCondensed / Mono Condensed nên rơi về Segoe UI / Bahnschrift, nét mảnh và x-height thấp hơn. Đã sửa bằng cách nhúng font vào exe; đừng bỏ thư mục `fonts/` khỏi build. Sau đó vẫn hơi nhoè do vẽ chữ với `PixelOffsetMode.Half` và ký tự giãn chữ đặt ở toạ độ lẻ; đã sửa thêm và tăng cỡ chữ nhỏ 10% (`textScale`).
+- **`% Disk Time` vượt 100%** (đo được 505 khi ổ bận hết): counter cộng dồn độ dài hàng đợi. Dùng `100 - % Idle Time`.
+- **Thêm field kiểu mảng đối tượng vào `HudState`**: `Interp` cũ gọi `Activator.CreateInstance` trên kiểu mảng → crash. Nay có nhánh `type.IsArray` riêng.
 - **WMI `MSAcpi_ThermalZoneTemperature`**: thường "Not supported", hoặc trả số cố định (27.8°C). Lọc ngoài 0–125 và tắt nguồn khi lỗi.
 
 ## Memory files & external resources
